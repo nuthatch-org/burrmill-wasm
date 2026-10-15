@@ -104,10 +104,16 @@ mod bindings {
     /// engine's answer is put in the same bytes as this one's, to be compared.
     #[wasm_bindgen(js_name = encodeIpcLines)]
     pub fn encode_ipc_lines(ipc: &[u8]) -> Result<String, JsError> {
-        let reader =
-            arrow::ipc::reader::StreamReader::try_new(std::io::Cursor::new(ipc), None).map_err(err)?;
+        let cursor = std::io::Cursor::new(ipc);
+        // DuckDB-Wasm's `runQuery` answers the file format, arrow-js's `tableToIPC` the stream.
+        let batches: Box<dyn Iterator<Item = Result<_, arrow::error::ArrowError>>> =
+            if ipc.starts_with(b"ARROW1") {
+                Box::new(arrow::ipc::reader::FileReader::try_new(cursor, None).map_err(err)?)
+            } else {
+                Box::new(arrow::ipc::reader::StreamReader::try_new(cursor, None).map_err(err)?)
+            };
         let mut text = String::new();
-        for batch in reader {
+        for batch in batches {
             for r in burrmill::df::encode::rows(&batch.map_err(err)?).map_err(err)? {
                 text.push_str(&serde_json::to_string(&r).map_err(err)?);
                 text.push('\n');
