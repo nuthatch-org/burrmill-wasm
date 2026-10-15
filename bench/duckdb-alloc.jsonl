@@ -1,0 +1,23 @@
+{"view":"deployment_signal","rows":14992,"cold_ms":181,"warm_ms":24,"reads":155,"mb":5.5,"digest":"8183f486aa390406"}
+{"view":"open_allocations","rows":7573,"cold_ms":555,"warm_ms":199,"reads":2110,"mb":34.4,"digest":"9687186dd58534bd"}
+{"view":"port_queue","rows":3848,"cold_ms":701,"warm_ms":217,"reads":2264,"mb":36.7,"digest":"ab8d03fb5c199472"}
+{"view":"lodestar_allocations","rows":290746,"cold_ms":3093,"warm_ms":1697,"reads":8608,"mb":131.9,"digest":null,"err":"encode: Invalid argument error: Need at least 12 bytes for bitmap in buffers[0] in array of type Boolean, but got 0"}
+{"view":"epoch_boundaries","rows":0,"cold_ms":990,"warm_ms":365,"reads":873,"mb":11.4,"digest":"e3b0c44298fc1c14"}
+{"view":"lodestar_epochs","rows":0,"cold_ms":14043,"warm_ms":7124,"reads":5433,"mb":73.5,"digest":"e3b0c44298fc1c14"}
+{"view":"lodestar_disputes","rows":0,"cold_ms":39,"warm_ms":1,"reads":0,"mb":0,"digest":"e3b0c44298fc1c14"}
+{"view":"lodestar_escrow_transactions","rows":86391,"cold_ms":233,"warm_ms":61,"reads":297,"mb":7.4,"digest":"8cfc2b1ec8e296ce"}
+{"view":"lodestar_delegations","rows":606557,"cold_ms":860,"warm_ms":457,"reads":3438,"mb":55.3,"digest":"619e371cb55383f6"}
+{"view":"lodestar_network_params","rows":0,"cold_ms":1591,"warm_ms":466,"reads":1162,"mb":15.4,"digest":"e3b0c44298fc1c14"}
+{"view":"lodestar_indexer_ledger","err":"no answer within 600s"}
+{"view":"lodestar_indexers","rows":185,"cold_ms":21493,"warm_ms":10142,"reads":18037,"mb":267.4,"digest":"05855ea4599023ae"}
+{"view":"lodestar_indexer_pool","rows":143,"cold_ms":9053,"warm_ms":5036,"reads":7524,"mb":109.7,"digest":"4a66ce8c553886b2"}
+{"view":"lodestar_delegator_positions","rows":322883,"cold_ms":2614,"warm_ms":2167,"reads":2474,"mb":39.5,"digest":"dd5eda68f84e15a6"}
+{"view":"lodestar_delegator_stakes","rows":322883,"cold_ms":13958,"warm_ms":7460,"reads":8239,"mb":120.5,"digest":"ab4ab662073b75e5"}
+{"view":"lodestar_delegators","rows":309742,"cold_ms":2691,"warm_ms":2158,"reads":2474,"mb":39.5,"digest":"9819c21d87fe1b20"}
+{"view":"lodestar_curator_signals","rows":16188,"cold_ms":3859,"warm_ms":1645,"reads":8365,"mb":127.9,"digest":"970bdb0e16104100"}
+{"view":"lodestar_curators","rows":1834,"cold_ms":208,"warm_ms":42,"reads":282,"mb":7.4,"digest":"efbfc3459ebff697"}
+{"view":"lodestar_provisions","rows":72,"cold_ms":3712,"warm_ms":1541,"reads":7983,"mb":121,"digest":"4bb324c05f7c2715"}
+{"view":"lodestar_network","rows":1,"cold_ms":43251,"warm_ms":16805,"reads":20044,"mb":293.7,"digest":"7eb30b9e75b9eb3a"}
+{"view":"lodestar_deployments","rows":25259,"cold_ms":7131,"warm_ms":3213,"reads":8410,"mb":128.6,"digest":"b773763b410e3e53"}
+{"view":"lodestar_indexer_deployment_daily","rows":846992,"cold_ms":13023,"warm_ms":7673,"reads":10958,"mb":163.5,"digest":"9454edea06aeff49"}
+{"view":"lodestar_indexer_daily","rows":20207,"cold_ms":15533,"warm_ms":7616,"reads":10958,"mb":163.5,"digest":"6d042ff824d2904a"}
