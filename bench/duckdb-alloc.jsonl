@@ -1,7 +1,7 @@
 {"view":"deployment_signal","rows":14992,"cold_ms":181,"warm_ms":24,"reads":155,"mb":5.5,"digest":"8183f486aa390406"}
 {"view":"open_allocations","rows":7573,"cold_ms":555,"warm_ms":199,"reads":2110,"mb":34.4,"digest":"9687186dd58534bd"}
 {"view":"port_queue","rows":3848,"cold_ms":701,"warm_ms":217,"reads":2264,"mb":36.7,"digest":"ab8d03fb5c199472"}
-{"view":"lodestar_allocations","rows":290746,"cold_ms":3093,"warm_ms":1697,"reads":8608,"mb":131.9,"digest":null,"err":"encode: Invalid argument error: Need at least 12 bytes for bitmap in buffers[0] in array of type Boolean, but got 0"}
+{"view":"lodestar_allocations","rows":290746,"cold_ms":3056,"warm_ms":1667,"reads":8608,"mb":131.9,"digest":"aee337786a9e45e2","note":"rerun through DuckDB IPC: arrow-js could not serialise its all-null BOOLEAN"}
 {"view":"epoch_boundaries","rows":0,"cold_ms":990,"warm_ms":365,"reads":873,"mb":11.4,"digest":"e3b0c44298fc1c14"}
 {"view":"lodestar_epochs","rows":0,"cold_ms":14043,"warm_ms":7124,"reads":5433,"mb":73.5,"digest":"e3b0c44298fc1c14"}
 {"view":"lodestar_disputes","rows":0,"cold_ms":39,"warm_ms":1,"reads":0,"mb":0,"digest":"e3b0c44298fc1c14"}
