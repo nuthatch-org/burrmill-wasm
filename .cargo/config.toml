@@ -1,0 +1,4 @@
+# getrandom 0.3 takes its browser backend from a cfg as well as a feature. The stack is the planner's:
+# burrmill plans on an 8 MiB thread natively, and a tab has only the one stack, sized here.
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\"", "-C", "link-arg=-zstack-size=8388608"]

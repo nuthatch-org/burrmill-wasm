@@ -1,0 +1,209 @@
+[
+ {
+  "view": "deployment_signal",
+  "rows": 14992,
+  "cold_ms": 223,
+  "warm_ms": 42,
+  "reads": 244,
+  "mb": 1.6,
+  "digest": "8183f486aa390406"
+ },
+ {
+  "view": "open_allocations",
+  "rows": 7573,
+  "cold_ms": 190,
+  "warm_ms": 91,
+  "reads": 2607,
+  "mb": 23.7,
+  "digest": "9687186dd58534bd"
+ },
+ {
+  "view": "port_queue",
+  "rows": 3848,
+  "cold_ms": 206,
+  "warm_ms": 162,
+  "reads": 3514,
+  "mb": 25.6,
+  "digest": "ab8d03fb5c199472"
+ },
+ {
+  "view": "lodestar_allocations",
+  "rows": 290746,
+  "cold_ms": 3248,
+  "warm_ms": 1298,
+  "reads": 12210,
+  "mb": 88.5,
+  "digest": "aee337786a9e45e2"
+ },
+ {
+  "view": "epoch_boundaries",
+  "rows": null,
+  "cold_ms": 124,
+  "warm_ms": 82,
+  "reads": 4644,
+  "mb": 9.6,
+  "digest": null
+ },
+ {
+  "view": "lodestar_epochs",
+  "rows": null,
+  "cold_ms": 407,
+  "warm_ms": 302,
+  "reads": 10960,
+  "mb": 32,
+  "digest": null
+ },
+ {
+  "view": "lodestar_disputes",
+  "rows": null,
+  "cold_ms": 7,
+  "warm_ms": 3,
+  "reads": 0,
+  "mb": 0,
+  "digest": null
+ },
+ {
+  "view": "lodestar_escrow_transactions",
+  "rows": 86391,
+  "cold_ms": 130,
+  "warm_ms": 100,
+  "reads": 924,
+  "mb": 3.6,
+  "digest": "8cfc2b1ec8e296ce"
+ },
+ {
+  "view": "lodestar_delegations",
+  "rows": 606557,
+  "cold_ms": 738,
+  "warm_ms": 585,
+  "reads": 5599,
+  "mb": 45,
+  "digest": "619e371cb55383f6"
+ },
+ {
+  "view": "lodestar_network_params",
+  "rows": null,
+  "cold_ms": 85,
+  "warm_ms": 38,
+  "reads": 2066,
+  "mb": 3.5,
+  "digest": null
+ },
+ {
+  "view": "lodestar_indexer_ledger",
+  "rows": 1718370,
+  "cold_ms": 20486,
+  "warm_ms": 4098,
+  "reads": 26680,
+  "mb": 84.3,
+  "digest": "990d1c654e6a5fa9"
+ },
+ {
+  "view": "lodestar_indexers",
+  "rows": 185,
+  "cold_ms": 3547,
+  "warm_ms": 3426,
+  "reads": 41267,
+  "mb": 175.2,
+  "digest": "05855ea4599023ae"
+ },
+ {
+  "view": "lodestar_indexer_pool",
+  "rows": 143,
+  "cold_ms": 2655,
+  "warm_ms": 2601,
+  "reads": 24889,
+  "mb": 77.9,
+  "digest": "4a66ce8c553886b2"
+ },
+ {
+  "view": "lodestar_delegator_positions",
+  "rows": 322883,
+  "cold_ms": 1472,
+  "warm_ms": 1224,
+  "reads": 7681,
+  "mb": 41.8,
+  "digest": "dd5eda68f84e15a6"
+ },
+ {
+  "view": "lodestar_delegator_stakes",
+  "rows": 322883,
+  "cold_ms": 4102,
+  "warm_ms": 3895,
+  "reads": 31746,
+  "mb": 118.4,
+  "digest": "ab4ab662073b75e5"
+ },
+ {
+  "view": "lodestar_delegators",
+  "rows": 309742,
+  "cold_ms": 863,
+  "warm_ms": 811,
+  "reads": 6774,
+  "mb": 36.9,
+  "digest": "9819c21d87fe1b20"
+ },
+ {
+  "view": "lodestar_curator_signals",
+  "rows": 16188,
+  "cold_ms": 368,
+  "warm_ms": 331,
+  "reads": 7626,
+  "mb": 51.4,
+  "digest": "970bdb0e16104100"
+ },
+ {
+  "view": "lodestar_curators",
+  "rows": 1834,
+  "cold_ms": 42,
+  "warm_ms": 35,
+  "reads": 439,
+  "mb": 2.8,
+  "digest": "efbfc3459ebff697"
+ },
+ {
+  "view": "lodestar_provisions",
+  "rows": 72,
+  "cold_ms": 507,
+  "warm_ms": 463,
+  "reads": 9301,
+  "mb": 61.1,
+  "digest": "4bb324c05f7c2715"
+ },
+ {
+  "view": "lodestar_network",
+  "rows": 1,
+  "cold_ms": 4753,
+  "warm_ms": 4628,
+  "reads": 49179,
+  "mb": 230.4,
+  "digest": "7eb30b9e75b9eb3a"
+ },
+ {
+  "view": "lodestar_deployments",
+  "rows": 25259,
+  "cold_ms": 1314,
+  "warm_ms": 1274,
+  "reads": 15459,
+  "mb": 116,
+  "digest": "b773763b410e3e53"
+ },
+ {
+  "view": "lodestar_indexer_deployment_daily",
+  "rows": 846992,
+  "cold_ms": 5431,
+  "warm_ms": 5302,
+  "reads": 36365,
+  "mb": 201.7,
+  "digest": "9454edea06aeff49"
+ },
+ {
+  "view": "lodestar_indexer_daily",
+  "rows": 20207,
+  "cold_ms": 4333,
+  "warm_ms": 4253,
+  "reads": 36365,
+  "mb": 201.7,
+  "digest": "6d042ff824d2904a"
+ }
+]

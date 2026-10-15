@@ -1,0 +1,37 @@
+[package]
+name = "burrmill-wasm"
+version = "0.0.1"
+description = "Burrmill in a browser tab: a nest's sealed segments, queried where they are read."
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+burrmill = { git = "https://github.com/nuthatch-org/burrmill", branch = "pete/wasm", features = ["datafusion"] }
+object_store = { version = "0.13", default-features = false }
+arrow = { version = "59", default-features = false }
+async-trait = "0.1"
+bytes = "1"
+chrono = { version = "0.4", default-features = false }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.128"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+send_wrapper = { version = "0.6", features = ["futures"] }
+console_error_panic_hook = "0.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+object_store = { version = "0.13", default-features = false, features = ["fs"] }
+sha2 = "0.10"
+
+[profile.release]
+lto = true
+codegen-units = 1
