@@ -57,13 +57,23 @@ mod bindings {
             Ok(nest.views())
         }
 
+        /// The nest tables and authored views `sql` reaches, as `[tables, views]`: what this binds
+        /// before running it, for another engine to be given the same.
+        pub fn reach(&self, sql: &str) -> Result<Vec<js_sys::Array>, JsError> {
+            let nest = self.0.try_lock().ok_or_else(|| err("a statement is running"))?;
+            let (tables, views) = nest.reach(sql).map_err(err)?;
+            let arr = |s: std::collections::BTreeSet<String>| {
+                s.into_iter().map(JsValue::from).collect::<js_sys::Array>()
+            };
+            Ok(vec![arr(tables), arr(views)])
+        }
+
         /// Rows as nuthatch's `/sql` encodes them: a JSON array of objects, as text.
         pub fn query(&self, sql: String) -> Promise {
             let nest = Rc::clone(&self.0);
             future_to_promise(async move {
                 let mut nest = nest.lock().await;
-                let rows = nest.query(&sql).await.map_err(|e| JsValue::from(err(e)))?;
-                let text = serde_json::to_string(&rows).map_err(|e| JsValue::from(err(e)))?;
+                let text = nest.query_text(&sql, true).await.map_err(|e| JsValue::from(err(e)))?;
                 Ok(JsValue::from_str(&text))
             })
         }
@@ -84,15 +94,32 @@ mod bindings {
             let nest = Rc::clone(&self.0);
             future_to_promise(async move {
                 let mut nest = nest.lock().await;
-                let rows = nest.query(&sql).await.map_err(|e| JsValue::from(err(e)))?;
-                let mut text = String::new();
-                for r in &rows {
-                    text.push_str(&serde_json::to_string(r).map_err(|e| JsValue::from(err(e)))?);
-                    text.push('\n');
-                }
+                let text = nest.query_text(&sql, false).await.map_err(|e| JsValue::from(err(e)))?;
                 Ok(JsValue::from_str(&text))
             })
         }
+    }
+
+    /// Arrow IPC (a stream) encoded as nuthatch's `/sql` encodes rows, one per line: how another
+    /// engine's answer is put in the same bytes as this one's, to be compared.
+    #[wasm_bindgen(js_name = encodeIpcLines)]
+    pub fn encode_ipc_lines(ipc: &[u8]) -> Result<String, JsError> {
+        let reader =
+            arrow::ipc::reader::StreamReader::try_new(std::io::Cursor::new(ipc), None).map_err(err)?;
+        let mut text = String::new();
+        for batch in reader {
+            for r in burrmill::df::encode::rows(&batch.map_err(err)?).map_err(err)? {
+                text.push_str(&serde_json::to_string(&r).map_err(err)?);
+                text.push('\n');
+            }
+        }
+        Ok(text)
+    }
+
+    /// The module's linear memory, for a page that shows what the engine holds.
+    #[wasm_bindgen(js_name = wasmMemory)]
+    pub fn wasm_memory() -> JsValue {
+        wasm_bindgen::memory()
     }
 
     fn err(e: impl std::fmt::Display) -> JsError {

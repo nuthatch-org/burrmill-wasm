@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 burrmill = { git = "https://github.com/nuthatch-org/burrmill", branch = "pete/wasm", features = ["datafusion"] }
 object_store = { version = "0.13", default-features = false }
-arrow = { version = "59", default-features = false }
+arrow = { version = "59", default-features = false, features = ["ipc"] }
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false }

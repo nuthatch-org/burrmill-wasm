@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Burrmill in a tab</title>
+<script type="importmap">
+{
+  "imports": {
+    "apache-arrow": "/npm/apache-arrow/Arrow.dom.mjs",
+    "flatbuffers": "/npm/flatbuffers/mjs/flatbuffers.js",
+    "tslib": "/npm/tslib/tslib.es6.mjs"
+  }
+}
+</script>
+<style>
+  :root {
+    --bg: #f7f5f0; --ink: #1d1c1a; --muted: #6b6760; --rule: #d8d3c8; --accent: #3d5a80; --warn: #a0522d;
+    --font: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161513; --ink: #ece8e0; --muted: #9a958b; --rule: #3a3731; --accent: #8fb0d8; --warn: #d9895c; }
+  }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); margin: 0; padding: 24px 16px; }
+  main { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.lede { color: var(--muted); margin: 0 0 20px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  select, button { font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--rule); padding: 6px 10px; border-radius: 4px; }
+  button { cursor: pointer; } button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 20px; }
+  th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+  th { color: var(--muted); font-weight: normal; }
+  .err { color: var(--warn); white-space: pre-wrap; text-align: left; }
+  #log { color: var(--muted); white-space: pre-wrap; min-height: 1.5em; }
+  .wrap { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Burrmill in a tab</h1>
+  <p class="lede">A nest's authored views, answered in this page from its sealed segments, against DuckDB-Wasm on the same files.</p>
+  <div class="controls">
+    <select id="nest"></select>
+    <select id="view"></select>
+    <button id="ours">Burrmill</button>
+    <button id="duck">DuckDB-Wasm</button>
+    <button id="both">Both</button>
+  </div>
+  <div id="log"></div>
+  <div class="wrap">
+    <table>
+      <thead><tr><th>engine</th><th>view</th><th>rows</th><th>cold ms</th><th>warm ms</th><th>requests</th><th>MB fetched</th><th>verified</th><th>digest</th></tr></thead>
+      <tbody id="results"></tbody>
+    </table>
+  </div>
+</main>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

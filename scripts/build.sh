@@ -8,6 +8,12 @@ clang_dir=${CLANG:-/opt/homebrew/opt/llvm/bin}
 [ -x "$clang_dir/clang" ] || { echo "no clang at $clang_dir: Apple's has no wasm32 backend; brew install llvm" >&2; exit 1; }
 export CC_wasm32_unknown_unknown=$clang_dir/clang AR_wasm32_unknown_unknown=$clang_dir/llvm-ar
 patch=()
+# A patched build rewrites Cargo.lock to the path; the committed lock names the pushed branch.
+if [ -n "${BURRMILL:-}" ]; then
+  cp Cargo.lock Cargo.lock.unpatched
+  # Keeps the build's own status: bash 3.2 otherwise exits with the trap's.
+  trap 'rc=$?; mv Cargo.lock.unpatched Cargo.lock; exit $rc' EXIT
+fi
 [ -n "${BURRMILL:-}" ] && patch=(--config "patch.\"https://github.com/nuthatch-org/burrmill\".burrmill.path=\"$BURRMILL\"")
 # bash 3.2 (macOS) calls an empty array unbound under set -u.
 cargo build --release --target wasm32-unknown-unknown ${patch[@]+"${patch[@]}"}

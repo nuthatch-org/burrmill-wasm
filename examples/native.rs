@@ -34,21 +34,21 @@ fn main() {
         let mut nest = open();
         let sql = format!("SELECT * FROM \"{v}\"");
         let t = Instant::now();
-        let got = futures::executor::block_on(nest.query(&sql));
+        let got = futures::executor::block_on(nest.query_text(&sql, false));
         let cold = t.elapsed().as_millis();
         let line = match got {
-            Ok(rows) => {
-                let mut lines: Vec<String> = rows.iter().map(|r| serde_json::to_string(r).unwrap()).collect();
+            Ok(text) => {
+                let mut lines: Vec<&str> = text.lines().collect();
                 // Order-free, as bench/node.mjs hashes: sorted rows, joined by newlines.
                 lines.sort();
                 let text = lines.join("\n");
                 let t = Instant::now();
-                futures::executor::block_on(nest.query(&sql)).unwrap();
+                futures::executor::block_on(nest.query_text(&sql, false)).unwrap();
                 let warm = t.elapsed().as_millis();
                 let digest = sha256_16(text.as_bytes());
                 format!(
                     r#"{{"view":"{v}","rows":{},"cold_ms":{cold},"warm_ms":{warm},"digest":"{digest}"}}"#,
-                    rows.len()
+                    lines.len()
                 )
             }
             Err(e) => format!(r#"{{"view":"{v}","err":{}}}"#, serde_json::to_string(&e).unwrap()),

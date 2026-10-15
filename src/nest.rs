@@ -125,13 +125,59 @@ impl Nest {
 
     /// Rows as nuthatch's `/sql` encodes them, one JSON object each.
     pub async fn query(&mut self, sql: &str) -> Result<Vec<Value>> {
-        self.prepare(sql).await?;
-        let batches = self.run(sql).await?;
         let mut rows = Vec::new();
-        for b in &batches {
-            rows.extend(burrmill::df::encode::rows(b).map_err(|e| e.to_string())?);
-        }
+        self.query_each(sql, |r| {
+            rows.push(r);
+            Ok(())
+        })
+        .await?;
         Ok(rows)
+    }
+
+    /// As `query`, written out as text, one row per line or as a JSON array. Each batch is encoded
+    /// as it arrives and dropped, so the text is the only copy of the answer the tab holds: holding
+    /// every row as a `Value` first took one view to 3.75 GiB of a 4 GiB address space.
+    pub async fn query_text(&mut self, sql: &str, array: bool) -> Result<String> {
+        let mut text = String::from(if array { "[" } else { "" });
+        let mut first = true;
+        self.query_each(sql, |r| {
+            if array && !first {
+                text.push(',');
+            }
+            first = false;
+            text.push_str(&serde_json::to_string(&r).map_err(|e| e.to_string())?);
+            if !array {
+                text.push('\n');
+            }
+            Ok(())
+        })
+        .await?;
+        if array {
+            text.push(']');
+        }
+        Ok(text)
+    }
+
+    async fn query_each(&mut self, sql: &str, mut f: impl FnMut(Value) -> Result<()>) -> Result<()> {
+        self.prepare(sql).await?;
+        let mut failed = None;
+        let mut each = |b: arrow::record_batch::RecordBatch| {
+            for r in burrmill::df::encode::rows(&b)? {
+                if let Err(e) = f(r) {
+                    failed = Some(e);
+                    return Err(burrmill::BurrmillError::Cancelled);
+                }
+            }
+            Ok(())
+        };
+        #[cfg(target_arch = "wasm32")]
+        let out = self.engine.sql_async_for_each(sql, &mut each).await;
+        #[cfg(not(target_arch = "wasm32"))]
+        let out = self.engine.sql_for_each(sql, &mut each);
+        match (out, failed) {
+            (_, Some(e)) => Err(e),
+            (r, None) => r.map_err(|e| e.to_string()),
+        }
     }
 
     /// Bind every table `sql` reaches, through the views it names, then define those views.
@@ -161,7 +207,7 @@ impl Nest {
     }
 
     /// The nest tables and authored views `sql` reaches, views widened to what they read.
-    fn reach(&self, sql: &str) -> Result<(BTreeSet<String>, BTreeSet<String>)> {
+    pub fn reach(&self, sql: &str) -> Result<(BTreeSet<String>, BTreeSet<String>)> {
         let names = burrmill::inspect::base_tables(sql)
             .ok_or_else(|| "not one parseable query".to_string())?;
         let mut frontier: Vec<String> = names.into_iter().collect();
@@ -195,13 +241,6 @@ impl Nest {
         futures::future::try_join_all(heads).await
     }
 
-    async fn run(&self, sql: &str) -> Result<Vec<arrow::record_batch::RecordBatch>> {
-        #[cfg(target_arch = "wasm32")]
-        let out = self.engine.sql_async(sql).await;
-        #[cfg(not(target_arch = "wasm32"))]
-        let out = self.engine.sql(sql);
-        out.map_err(|e| e.to_string())
-    }
 }
 
 /// nuthatch's `split_sql_statements`: on `;` outside quotes, `--` comments dropped.

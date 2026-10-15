@@ -7,7 +7,7 @@ import path from "node:path";
 
 const require = createRequire(import.meta.url);
 const NL = Buffer.from("\n");
-const { Nest } = require("../pkg/node/burrmill_wasm.js");
+const { Nest, wasmMemory } = require("../pkg/node/burrmill_wasm.js");
 
 const dir = path.resolve(process.argv[2] ?? "data/alloc");
 const only = process.argv[3];
@@ -54,7 +54,8 @@ for (const v of views) {
   const lines = text !== undefined ? text.split("\n").filter((l) => l.length) : null;
   const rows = lines ? lines.length : null;
   const digest = lines ? multiset(lines) : null;
-  out.push({ view: v, rows, cold_ms: Math.round(cold), warm_ms: warm && Math.round(warm), reads: coldIo.reads, mb: +(coldIo.bytes / 1e6).toFixed(1), digest, err: err?.slice(0, 200) });
+  const mib = (wasmMemory().buffer.byteLength / 2 ** 20) | 0;
+  out.push({ view: v, rows, mem_mib: mib, cold_ms: Math.round(cold), warm_ms: warm && Math.round(warm), reads: coldIo.reads, mb: +(coldIo.bytes / 1e6).toFixed(1), digest, err: err?.slice(0, 200) });
   console.error(JSON.stringify(out.at(-1)));
 }
 fs.writeFileSync(process.env.OUT ?? "/dev/stdout", JSON.stringify(out, null, 1));
