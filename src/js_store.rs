@@ -2,6 +2,8 @@
 //! each answering a promise. Over HTTP that is a range request; in Node, a file read; with a cache,
 //! whatever the cache holds. Read-only, and nothing is listed: the manifest names every key.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt;
 use std::ops::Range;
 
@@ -25,6 +27,10 @@ const NAME: &str = "JsStore";
 pub struct JsStore {
     size: SendWrapper<Function>,
     read: SendWrapper<Function>,
+    /// Each object read whole once and answered from here after: a segment is read a dozen times a
+    /// scan, and every crossing into JavaScript costs a turn of its event loop, which on the
+    /// Lodestar nest was 16 of a view's 18 seconds.
+    held: SendWrapper<RefCell<HashMap<String, Bytes>>>,
 }
 
 impl JsStore {
@@ -32,7 +38,21 @@ impl JsStore {
         Self {
             size: SendWrapper::new(size),
             read: SendWrapper::new(read),
+            held: SendWrapper::new(RefCell::new(HashMap::new())),
         }
+    }
+
+    async fn whole(&self, key: &str) -> Result<Bytes> {
+        if let Some(b) = self.held.borrow().get(key) {
+            return Ok(b.clone());
+        }
+        let size = self.size_of(key).await?;
+        let bytes = self.read_range(key, 0..size).await?;
+        self.held
+            .borrow_mut()
+            .entry(key.to_string())
+            .or_insert_with(|| bytes.clone());
+        Ok(bytes)
     }
 
     async fn size_of(&self, key: &str) -> Result<u64> {
@@ -106,7 +126,8 @@ impl fmt::Debug for JsStore {
 impl ObjectStore for JsStore {
     async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
         let key = location.as_ref();
-        let size = SendWrapper::new(self.size_of(key)).await?;
+        let whole = SendWrapper::new(self.whole(key)).await?;
+        let size = whole.len() as u64;
         let meta = ObjectMeta {
             location: location.clone(),
             last_modified: Default::default(),
@@ -121,12 +142,14 @@ impl ObjectStore for JsStore {
             Some(GetRange::Suffix(n)) => size.saturating_sub(*n)..size,
         };
         if range.start > range.end || (range.start >= size && size > 0) {
-            return Err(generic(format!("{key}: range {range:?} outside {size} bytes")));
+            return Err(generic(format!(
+                "{key}: range {range:?} outside {size} bytes"
+            )));
         }
         let payload = if options.head || range.is_empty() {
             futures::stream::empty().boxed()
         } else {
-            let bytes = SendWrapper::new(self.read_range(key, range.clone())).await?;
+            let bytes = whole.slice(range.start as usize..range.end as usize);
             futures::stream::once(async move { Ok(bytes) }).boxed()
         };
         Ok(GetResult {
@@ -138,9 +161,19 @@ impl ObjectStore for JsStore {
     }
 
     async fn get_ranges(&self, location: &Path, ranges: &[Range<u64>]) -> Result<Vec<Bytes>> {
-        let key = location.as_ref();
-        let reads = ranges.iter().map(|r| self.read_range(key, r.clone()));
-        SendWrapper::new(futures::future::try_join_all(reads)).await
+        let whole = SendWrapper::new(self.whole(location.as_ref())).await?;
+        ranges
+            .iter()
+            .map(|r| {
+                if r.end > whole.len() as u64 || r.start > r.end {
+                    return Err(generic(format!(
+                        "{location}: range {r:?} outside {} bytes",
+                        whole.len()
+                    )));
+                }
+                Ok(whole.slice(r.start as usize..r.end as usize))
+            })
+            .collect()
     }
 
     async fn put_opts(&self, _: &Path, _: PutPayload, _: PutOptions) -> Result<PutResult> {

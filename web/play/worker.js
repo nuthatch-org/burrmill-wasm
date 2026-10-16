@@ -26,7 +26,7 @@ async function opfsPut(hash, bytes) {
   catch { /* a full or refused store only costs a refetch */ }
 }
 
-const counts = { fetched: 0, cached: 0, bytes: 0 };
+const counts = { fetched: 0, cached: 0, bytes: 0, reads: 0, read_ms: 0 };
 function segmentStore(base) {
   const cache = new Map();
   let active = 0;
@@ -51,9 +51,17 @@ function segmentStore(base) {
     } finally { release(); }
   }
   const whole = (key) => { if (!cache.has(key)) cache.set(key, fetchVerified(key)); return cache.get(key); };
+  // Time the engine spends waiting on the store, against the time it spends computing.
+  const timed = (f) => async (...a) => {
+    const t = performance.now();
+    try { return await f(...a); } finally { counts.reads++; counts.read_ms += performance.now() - t; }
+  };
   return {
-    size: async (key) => (await whole(key)).length,
-    read: async (key, offset, length) => (await whole(key)).subarray(offset, offset + length),
+    size: timed(async (key) => (await whole(key)).length),
+    read: timed(async (key, offset, length) => {
+      const bytes = await whole(key);
+      return bytes.subarray(offset, offset + length);
+    }),
   };
 }
 
@@ -90,6 +98,8 @@ async function query({ sql }) {
     fetched: counts.fetched - before.fetched,
     cached: counts.cached - before.cached,
     bytes: counts.bytes - before.bytes,
+    reads: counts.reads - before.reads,
+    read_ms: counts.read_ms - before.read_ms,
     mem_mib: (wasmMemory().buffer.byteLength / 2 ** 20) | 0,
   };
 }
