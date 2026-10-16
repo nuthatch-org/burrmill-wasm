@@ -11,7 +11,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-burrmill = { git = "https://github.com/nuthatch-org/burrmill", branch = "pete/wasm", features = ["datafusion"] }
+burrmill = { git = "https://github.com/nuthatch-org/burrmill", branch = "main", features = ["datafusion"] }
 object_store = { version = "0.13", default-features = false }
 arrow = { version = "59", default-features = false, features = ["ipc"] }
 async-trait = "0.1"
