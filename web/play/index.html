@@ -41,7 +41,13 @@
   .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
   #run { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px; padding: 7px 16px; font-weight: 600; cursor: pointer; }
   #run:disabled { opacity: 0.5; cursor: progress; }
-  #clear { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--faint); }
+  .quiet { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--faint); }
+  .grow { flex: 1; }
+  #examples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .example { background: var(--code); border: 0; border-radius: 999px; padding: 3px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; cursor: pointer; color: var(--ink); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #source-box { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  #source-box summary { cursor: pointer; padding: 8px 12px; color: var(--faint); font-size: 0.85rem; }
+  #source { margin: 0; padding: 0 12px 12px; overflow: auto; max-height: 40vh; font-size: 0.8rem; white-space: pre; }
   .hint { color: var(--faint); font-size: 0.8rem; }
   #status { font-size: 0.85rem; color: var(--faint); min-height: 1.5em; margin-bottom: 8px; }
   #status.err { color: var(--err); }
@@ -70,14 +76,22 @@
     </aside>
     <section>
       <textarea id="sql" spellcheck="false" aria-label="SQL"></textarea>
+      <div id="examples"></div>
       <div class="actions">
         <button id="run">Run</button>
-        <span class="hint">Cmd/Ctrl + Enter</span>
-        <button id="clear" title="Forget the segments kept in this browser">Clear cache</button>
+        <button id="cancel" class="quiet" hidden>Cancel</button>
+        <span class="hint">Cmd/Ctrl + Enter · the address bar keeps the query, so a link reruns it</span>
+        <span class="grow"></span>
+        <button id="csv" class="quiet" hidden>Download CSV</button>
+        <button id="clear" class="quiet" title="Forget the segments kept in this browser">Clear cache</button>
       </div>
       <div id="status"></div>
       <div class="wrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
       <div id="more"></div>
+      <details id="source-box">
+        <summary>View source: <span id="source-name">hover a view</span></summary>
+        <pre id="source"></pre>
+      </details>
     </section>
   </div>
   <footer>

@@ -1,128 +1,122 @@
-// A nest in a tab: pick a published nest, run SQL over its sealed segments, here. Each segment is
-// fetched whole from the mirror, checked against the SHA-256 its key names, and kept in the
-// origin-private file system, so a second visit fetches nothing it already verified.
-import init, { Nest, wasmMemory } from "./pkg/burrmill_wasm.js";
-
+// A nest in a tab: pick a published nest, run SQL over its sealed segments, here. The engine runs in
+// a worker (worker.js), so the page stays responsive and Cancel can stop a statement outright.
 const $ = (id) => document.getElementById(id);
-const CONCURRENCY = 16;
 const SHOWN = 500;
 
-const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+const index = await (await fetch("./nests.json")).json();
 
-let opfs;
-async function opfsDir() {
-  if (opfs !== undefined) return opfs;
-  try { opfs = await (await navigator.storage.getDirectory()).getDirectoryHandle("segments", { create: true }); }
-  catch { opfs = null; }
-  return opfs;
-}
-async function opfsGet(hash) {
-  const dir = await opfsDir();
-  if (!dir) return null;
-  try { return new Uint8Array(await (await (await dir.getFileHandle(hash)).getFile()).arrayBuffer()); }
-  catch { return null; }
-}
-async function opfsPut(hash, bytes) {
-  const dir = await opfsDir();
-  if (!dir) return;
-  try { const w = await (await dir.getFileHandle(hash, { create: true })).createWritable(); await w.write(bytes); await w.close(); }
-  catch { /* a full or refused store only costs a refetch */ }
-}
-
-/// Segments by key, `<table>/<sha256>.parquet`, verified before use.
-function segmentStore(base, counts) {
-  const cache = new Map();
-  let active = 0;
-  const waiting = [];
-  const acquire = () => new Promise((go) => (active < CONCURRENCY ? (active++, go()) : waiting.push(go)));
-  const release = () => { const next = waiting.shift(); next ? next() : active--; };
-  async function fetchVerified(key) {
-    const want = key.split("/").pop().replace(/\.parquet$/, "");
-    const kept = await opfsGet(want);
-    if (kept) { counts.cached++; return kept; }
-    await acquire();
-    try {
-      const r = await fetch(`${base}/${key}`);
-      if (!r.ok) throw new Error(`${key}: HTTP ${r.status}`);
-      const bytes = new Uint8Array(await r.arrayBuffer());
-      const got = hex(await crypto.subtle.digest("SHA-256", bytes));
-      if (got !== want) throw new Error(`${key}: content is ${got.slice(0, 12)}…, not the address it is stored under`);
-      counts.fetched++;
-      counts.bytes += bytes.length;
-      await opfsPut(want, bytes);
-      return bytes;
-    } finally { release(); }
-  }
-  const whole = (key) => { if (!cache.has(key)) cache.set(key, fetchVerified(key)); return cache.get(key); };
-  return {
-    size: async (key) => (await whole(key)).length,
-    read: async (key, offset, length) => (await whole(key)).subarray(offset, offset + length),
+let worker;
+let seq = 0;
+const pending = new Map();
+function startWorker() {
+  worker?.terminate();
+  for (const { reject } of pending.values()) reject(new Error("cancelled"));
+  pending.clear();
+  worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  worker.onmessage = ({ data: { id, ok, err } }) => {
+    const p = pending.get(id);
+    if (!p) return;
+    pending.delete(id);
+    err === undefined ? p.resolve(ok) : p.reject(new Error(err));
   };
 }
-
-const index = await (await fetch("./nests.json")).json();
-await init();
-
-let engine;
-let counts;
-async function openNest(i) {
-  const n = index.nests[i];
-  engine?.free();
-  status(`opening ${n.nest}…`);
-  const base = `${index.base}/${n.dataset}`;
-  const [manifestText, schemaText] = await Promise.all([
-    fetch(`${base}/manifest.json`).then((r) => { if (!r.ok) throw new Error(`manifest: HTTP ${r.status}`); return r.text(); }),
-    fetch(`${base}/schema.json`).then((r) => (r.ok ? r.text() : undefined)),
-  ]);
-  counts = { fetched: 0, cached: 0, bytes: 0 };
-  const store = segmentStore(base, counts);
-  engine = new Nest(store.size, store.read, "", manifestText, schemaText);
-  for (const v of n.views) engine.addViews(v.text);
-  const manifest = JSON.parse(manifestText);
-  const segments = Object.values(manifest.tables).flat().length;
-  $("views").replaceChildren(...engine.views().map((v) => {
-    const b = Object.assign(document.createElement("button"), { textContent: v, className: "view" });
-    b.addEventListener("click", () => { $("sql").value = `SELECT * FROM "${v}" LIMIT 100`; run(); });
-    return b;
-  }));
-  $("about").innerHTML = "";
-  $("about").append(
-    `${engine.tables().length} tables, ${segments.toLocaleString()} segments, dataset `,
-    Object.assign(document.createElement("code"), { textContent: `${n.dataset.slice(0, 12)}…` }),
-    ", views from ",
-    Object.assign(document.createElement("a"), { href: `${n.repo}/tree/${n.commit}/views`, textContent: n.repo.replace("https://github.com/", ""), target: "_blank", rel: "noopener" }),
-    ` at ${n.commit.slice(0, 7)}`,
-  );
-  const first = engine.views()[0];
-  if (first) $("sql").value = `SELECT * FROM "${first}" LIMIT 100`;
-  status(`${n.nest} ready`);
-}
+const call = (op, args) => new Promise((resolve, reject) => {
+  const id = ++seq;
+  pending.set(id, { resolve, reject });
+  worker.postMessage({ id, op, args });
+});
 
 function status(s, err = false) { $("status").textContent = s; $("status").classList.toggle("err", err); }
+const duration = (ms) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
 
+/// The statement that defines `view`, cut from the nest's view files for showing beside the list.
+function viewSource(nest, view) {
+  const esc = view.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const head = new RegExp(`CREATE\\s+(?:OR\\s+REPLACE\\s+)?VIEW\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?"?${esc}"?\\s+AS\\b`, "i");
+  for (const f of nest.views) {
+    const m = head.exec(f.text);
+    if (m) {
+      const rest = f.text.slice(m.index);
+      const next = rest.slice(1).search(/\bCREATE\s+(?:OR\s+REPLACE\s+)?VIEW\b/i);
+      return { path: f.path, text: (next < 0 ? rest : rest.slice(0, next + 1)).trim() };
+    }
+    if (f.path.replace(/^views\/|\.sql$/g, "") === view) return { path: f.path, text: f.text.trim() };
+  }
+  return null;
+}
+
+let nest;
+let opened;
+async function openNest(i, then) {
+  nest = index.nests[i];
+  startWorker();
+  status(`opening ${nest.nest}…`);
+  opened = await call("open", { base: `${index.base}/${nest.dataset}`, views: nest.views.map((v) => v.text) });
+  $("views").replaceChildren(...opened.views.map((v) => {
+    const b = Object.assign(document.createElement("button"), { textContent: v, className: "view" });
+    b.addEventListener("click", () => { $("sql").value = `SELECT * FROM "${v}" LIMIT 100`; showSource(v); run(); });
+    b.addEventListener("mouseenter", () => showSource(v));
+    return b;
+  }));
+  $("about").replaceChildren(
+    `${opened.tables} tables, ${opened.segments.toLocaleString()} segments, ${opened.rows.toLocaleString()} rows sealed, dataset `,
+    Object.assign(document.createElement("code"), { textContent: `${nest.dataset.slice(0, 12)}…` }),
+    ", views from ",
+    Object.assign(document.createElement("a"), { href: `${nest.repo}/tree/${nest.commit}/views`, textContent: nest.repo.replace("https://github.com/", ""), target: "_blank", rel: "noopener" }),
+    ` at ${nest.commit.slice(0, 7)}`,
+  );
+  const examples = [
+    ...opened.views.slice(0, 3).map((v) => `SELECT * FROM "${v}" LIMIT 100`),
+    opened.views[0] ? `SELECT count(*) AS rows FROM "${opened.views[0]}"` : null,
+  ].filter(Boolean);
+  $("examples").replaceChildren(...examples.map((q) => {
+    const b = Object.assign(document.createElement("button"), { textContent: q, className: "example" });
+    b.addEventListener("click", () => { $("sql").value = q; run(); });
+    return b;
+  }));
+  if (then) { $("sql").value = then; run(); }
+  else {
+    if (opened.views[0]) $("sql").value = `SELECT * FROM "${opened.views[0]}" LIMIT 100`;
+    status(`${nest.nest} ready. The first query on a view downloads the segments it reads and checks each one; this browser keeps them for next time.`);
+  }
+}
+
+function showSource(view) {
+  const src = viewSource(nest, view);
+  $("source-name").textContent = src ? `${view}  (${src.path})` : view;
+  $("source").textContent = src ? src.text : "defined in a view file this page could not match";
+}
+
+let lastLines = [];
 let running = false;
 async function run() {
-  if (running || !engine) return;
+  if (running) return;
   running = true;
   $("run").disabled = true;
-  const before = { ...counts };
-  status("running…");
-  const t = performance.now();
+  $("cancel").hidden = false;
+  const sql = $("sql").value;
+  const url = new URL(location.href);
+  url.searchParams.set("nest", nest.nest);
+  url.searchParams.set("q", sql);
+  history.replaceState(null, "", url);
+  const started = performance.now();
+  const tick = setInterval(() => status(`running… ${duration(performance.now() - started)}`), 200);
   try {
-    const text = await engine.queryLines($("sql").value);
-    const ms = performance.now() - t;
-    const lines = text.split("\n").filter((l) => l.length);
-    render(lines);
-    const fetched = counts.fetched - before.fetched, cached = counts.cached - before.cached;
-    const mb = ((counts.bytes - before.bytes) / 1e6).toFixed(1);
-    status(`${lines.length.toLocaleString()} rows in ${ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`}`
-      + ` · ${fetched} segments fetched and verified (${mb} MB), ${cached} from this browser's cache`
-      + ` · ${(wasmMemory().buffer.byteLength / 2 ** 20) | 0} MiB of wasm memory`);
+    const r = await call("query", { sql });
+    lastLines = r.text.split("\n").filter((l) => l.length);
+    render(lastLines);
+    status(`${lastLines.length.toLocaleString()} rows in ${duration(r.ms)}`
+      + ` · ${r.fetched} segments fetched and verified (${(r.bytes / 1e6).toFixed(1)} MB), ${r.cached} from this browser's cache`
+      + ` · ${r.mem_mib} MiB of wasm memory`);
+    window.__last = { sql, rows: lastLines.length, ...r, text: undefined };
   } catch (e) {
     status(String(e?.message ?? e), true);
+    window.__last = { sql, error: String(e?.message ?? e) };
   } finally {
+    clearInterval(tick);
     running = false;
     $("run").disabled = false;
+    $("cancel").hidden = true;
   }
 }
 
@@ -144,17 +138,55 @@ function render(lines) {
   });
   $("thead").replaceChildren(head);
   $("tbody").replaceChildren(...body);
-  $("more").textContent = lines.length > SHOWN ? `showing the first ${SHOWN} of ${lines.length.toLocaleString()} rows` : "";
+  $("more").textContent = lines.length > SHOWN ? `showing the first ${SHOWN} of ${lines.length.toLocaleString()} rows; CSV has them all` : "";
+  $("csv").hidden = lines.length === 0;
+}
+
+function csv() {
+  const rows = lastLines.map((l) => JSON.parse(l));
+  const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+  const cell = (v) => {
+    if (v === null || v === undefined) return "";
+    const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const text = [cols.join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(","))].join("\n");
+  const a = Object.assign(document.createElement("a"), {
+    href: URL.createObjectURL(new Blob([text], { type: "text/csv" })),
+    download: `${nest.nest}.csv`,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 $("nest").replaceChildren(...index.nests.map((n, i) => Object.assign(document.createElement("option"), { value: i, textContent: n.nest })));
 $("nest").addEventListener("change", (e) => openNest(+e.target.value).catch((err) => status(String(err?.message ?? err), true)));
 $("run").addEventListener("click", run);
+$("cancel").addEventListener("click", () => { startWorker(); status("cancelled; reopening…"); openNest(+$("nest").value); });
+$("csv").addEventListener("click", csv);
 $("sql").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run(); });
 $("clear").addEventListener("click", async () => {
-  try { await (await navigator.storage.getDirectory()).removeEntry("segments", { recursive: true }); opfs = undefined; status("cache cleared"); }
-  catch { status("nothing cached"); }
+  try { await call("clearCache"); status("cache cleared"); } catch { status("nothing cached"); }
 });
-const start = Math.max(0, index.nests.findIndex((n) => n.nest === "graph-allocations-nest"));
+
+/// Every view of the open nest, one after another, for measuring: cold on an empty cache, then
+/// again from this browser's cache in a fresh worker.
+window.__bench = async () => {
+  const out = [];
+  for (const pass of ["cold", "opfs"]) {
+    if (pass === "cold") await call("clearCache").catch(() => {});
+    await openNest(+$("nest").value);
+    for (const v of opened.views) {
+      $("sql").value = `SELECT * FROM "${v}"`;
+      await run();
+      out.push({ pass, view: v, ...window.__last });
+    }
+  }
+  window.__benchResult = out;
+  return out;
+};
+
+const params = new URLSearchParams(location.search);
+let start = Math.max(0, index.nests.findIndex((n) => n.nest === (params.get("nest") ?? "graph-allocations-nest")));
 $("nest").value = start;
-openNest(start).catch((err) => status(String(err?.message ?? err), true));
+openNest(start, params.get("q")).catch((err) => status(String(err?.message ?? err), true));
