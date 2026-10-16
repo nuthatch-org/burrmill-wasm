@@ -8,7 +8,7 @@
 {"view":"lodestar_escrow_transactions","rows":86391,"cold_ms":233,"warm_ms":61,"reads":297,"mb":7.4,"digest":"8cfc2b1ec8e296ce"}
 {"view":"lodestar_delegations","rows":606557,"cold_ms":860,"warm_ms":457,"reads":3438,"mb":55.3,"digest":"619e371cb55383f6"}
 {"view":"lodestar_network_params","rows":0,"cold_ms":1591,"warm_ms":466,"reads":1162,"mb":15.4,"digest":"e3b0c44298fc1c14"}
-{"view":"lodestar_indexer_ledger","err":"no answer within 600s"}
+{"view":"lodestar_indexer_ledger","err":"no answer within 3600s; 3554 s CPU, 1.07 GiB resident"}
 {"view":"lodestar_indexers","rows":185,"cold_ms":21493,"warm_ms":10142,"reads":18037,"mb":267.4,"digest":"05855ea4599023ae"}
 {"view":"lodestar_indexer_pool","rows":143,"cold_ms":9053,"warm_ms":5036,"reads":7524,"mb":109.7,"digest":"4a66ce8c553886b2"}
 {"view":"lodestar_delegator_positions","rows":322883,"cold_ms":2614,"warm_ms":2167,"reads":2474,"mb":39.5,"digest":"dd5eda68f84e15a6"}
