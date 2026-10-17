@@ -169,6 +169,23 @@ $("clear").addEventListener("click", async () => {
   try { await call("clearCache"); status("cache cleared"); } catch { status("nothing cached"); }
 });
 
+/// The order-free digest examples/native.rs and bench/node.mjs print: rows sorted by their UTF-8
+/// bytes, joined by newlines, the first 16 hex digits of the SHA-256.
+async function digest(lines) {
+  const enc = new TextEncoder();
+  const rows = lines.map((l) => enc.encode(l));
+  rows.sort((a, b) => {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return a.length - b.length;
+  });
+  const total = rows.reduce((s, r) => s + r.length, 0) + Math.max(0, rows.length - 1);
+  const buf = new Uint8Array(total);
+  let at = 0;
+  rows.forEach((r, i) => { if (i) buf[at++] = 10; buf.set(r, at); at += r.length; });
+  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", buf));
+  return [...hash.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /// Every view of the open nest, one after another, for measuring: cold on an empty cache, then
 /// again from this browser's cache in a fresh worker.
 window.__bench = async () => {
@@ -179,7 +196,7 @@ window.__bench = async () => {
     for (const v of opened.views) {
       $("sql").value = `SELECT * FROM "${v}"`;
       await run();
-      out.push({ pass, view: v, ...window.__last });
+      out.push({ pass, view: v, ...window.__last, digest: await digest(lastLines) });
     }
   }
   window.__benchResult = out;
