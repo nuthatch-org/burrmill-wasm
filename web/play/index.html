@@ -57,6 +57,25 @@
   th { position: sticky; top: 0; background: var(--code); font-weight: 600; }
   td.num { text-align: right; }
   #more { color: var(--faint); font-size: 0.8rem; margin-top: 6px; }
+  #viz { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 10px 12px 6px; margin-bottom: 10px; }
+  .viz-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .tab { background: none; border: 0; padding: 4px 12px; cursor: pointer; color: var(--faint); }
+  .tab.on { background: var(--accent); color: var(--accent-ink); }
+  #legend { display: inline-flex; flex-wrap: wrap; gap: 10px; font-size: 0.8rem; }
+  .key::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; background: var(--k); vertical-align: -1px; }
+  #tip { min-height: 1.4em; margin: 6px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #tip span { margin-right: 12px; }
+  #chart svg { display: block; width: 100%; height: auto; }
+  #chart .grid { stroke: var(--line); stroke-width: 1; }
+  #chart .zero { stroke: var(--faint); stroke-width: 1; }
+  #chart .cross { stroke: var(--faint); stroke-dasharray: 3 3; }
+  #chart .axis { fill: var(--faint); font: 11px ui-sans-serif, system-ui, sans-serif; }
+  #stats { display: flex; flex-wrap: wrap; gap: 12px; }
+  #stats:empty { display: none; }
+  .stat { flex: 1 1 180px; padding: 14px 12px; border-radius: 8px; background: var(--code); }
+  .stat-value { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+  .stat-label { color: var(--faint); font-size: 0.8rem; margin-top: 2px; }
   footer { margin-top: 32px; color: var(--faint); font-size: 0.82rem; max-width: 80ch; }
   footer a { color: var(--accent); }
 </style>
@@ -86,7 +105,22 @@
         <button id="clear" class="quiet" title="Forget the segments kept in this browser">Clear cache</button>
       </div>
       <div id="status"></div>
-      <div class="wrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+      <div id="viz" hidden>
+        <div class="viz-bar">
+          <div class="tabs" role="tablist">
+            <button id="tab-chart" class="tab on" role="tab" aria-selected="true">Chart</button>
+            <button id="tab-table" class="tab" role="tab" aria-selected="false">Table</button>
+          </div>
+          <select id="ycol" aria-label="column to chart"></select>
+          <span id="legend"></span>
+          <span class="grow"></span>
+          <span id="viz-note" class="hint"></span>
+        </div>
+        <div id="tip" class="hint"></div>
+        <div id="chart"></div>
+        <div id="stats"></div>
+      </div>
+      <div class="wrap" id="table-wrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
       <div id="more"></div>
       <details id="source-box">
         <summary>View source: <span id="source-name">hover a view</span></summary>

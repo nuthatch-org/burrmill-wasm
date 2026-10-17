@@ -1,5 +1,7 @@
 // A nest in a tab: pick a published nest, run SQL over its sealed segments, here. The engine runs in
 // a worker (worker.js), so the page stays responsive and Cancel can stop a statement outright.
+import { draw, stat } from "./chart.js";
+
 const $ = (id) => document.getElementById(id);
 const SHOWN = 500;
 
@@ -54,7 +56,7 @@ async function openNest(i, then) {
   opened = await call("open", { base: `${index.base}/${nest.dataset}`, views: nest.views.map((v) => v.text) });
   $("views").replaceChildren(...opened.views.map((v) => {
     const b = Object.assign(document.createElement("button"), { textContent: v, className: "view" });
-    b.addEventListener("click", () => { $("sql").value = `SELECT * FROM "${v}" LIMIT 100`; showSource(v); run(); });
+    b.addEventListener("click", () => { $("sql").value = `SELECT * FROM "${v}"`; showSource(v); run(); });
     b.addEventListener("mouseenter", () => showSource(v));
     return b;
   }));
@@ -76,7 +78,7 @@ async function openNest(i, then) {
   }));
   if (then) { $("sql").value = then; run(); }
   else {
-    if (opened.views[0]) $("sql").value = `SELECT * FROM "${opened.views[0]}" LIMIT 100`;
+    if (opened.views[0]) $("sql").value = `SELECT * FROM "${opened.views[0]}"`;
     status(`${nest.nest} ready. The first query on a view downloads the segments it reads and checks each one; this browser keeps them for next time.`);
   }
 }
@@ -105,11 +107,13 @@ async function run() {
     const r = await call("query", { sql });
     lastLines = r.text.split("\n").filter((l) => l.length);
     render(lastLines);
+    showViz(r.chart);
     status(`${lastLines.length.toLocaleString()} rows in ${duration(r.ms)}`
       + ` · ${r.fetched} segments fetched and verified (${(r.bytes / 1e6).toFixed(1)} MB), ${r.cached} from this browser's cache`
       + ` · ${r.mem_mib} MiB of wasm memory`);
-    window.__last = { sql, rows: lastLines.length, ...r, text: undefined };
+    window.__last = { sql, rows: lastLines.length, ...r, text: undefined, chart: r.chart?.kind };
   } catch (e) {
+    showViz(null);
     status(String(e?.message ?? e), true);
     window.__last = { sql, error: String(e?.message ?? e) };
   } finally {
@@ -141,6 +145,61 @@ function render(lines) {
   $("more").textContent = lines.length > SHOWN ? `showing the first ${SHOWN} of ${lines.length.toLocaleString()} rows; CSV has them all` : "";
   $("csv").hidden = lines.length === 0;
 }
+
+let viz = null;
+let tab = "chart";
+function showViz(spec) {
+  viz = spec;
+  $("viz").hidden = !spec;
+  if (!spec) { $("table-wrap").hidden = false; return; }
+  $("ycol").hidden = spec.kind === "stat" || spec.ys.length < 2;
+  if (spec.kind !== "stat") {
+    $("ycol").replaceChildren(...spec.ys.map((c) => Object.assign(document.createElement("option"), { value: c, textContent: c, selected: c === spec.y })));
+  }
+  $("viz-note").textContent = spec.note ?? (spec.kind === "dots" ? "one dot per row" : "");
+  setTab(tab);
+}
+function setTab(t) {
+  tab = t;
+  for (const [id, on] of [["tab-chart", t === "chart"], ["tab-table", t === "table"]]) {
+    $(id).classList.toggle("on", on);
+    $(id).setAttribute("aria-selected", on);
+  }
+  const chart = viz && t === "chart";
+  for (const id of ["chart", "stats", "tip", "legend", "ycol", "viz-note"]) $(id).style.display = chart ? "" : "none";
+  $("table-wrap").hidden = chart;
+  $("more").hidden = chart;
+  paint();
+}
+function tip(head, parts) {
+  $("tip").replaceChildren(head, ...parts.map(([color, text]) => {
+    const s = Object.assign(document.createElement("span"), { className: "key", textContent: text });
+    s.style.setProperty("--k", color);
+    return s;
+  }));
+}
+function paint() {
+  tip("", []);
+  if (!viz || tab !== "chart") return;
+  if (viz.kind === "stat") {
+    $("chart").replaceChildren();
+    $("legend").replaceChildren();
+    stat($("stats"), viz.row);
+    return;
+  }
+  $("stats").replaceChildren();
+  const keys = draw($("chart"), viz, $("ycol").value, tip) ?? [];
+  $("legend").replaceChildren(...(keys.length > 1 ? keys : []).map(([name, color]) => {
+    const s = Object.assign(document.createElement("span"), { className: "key", textContent: name });
+    s.style.setProperty("--k", color);
+    return s;
+  }));
+}
+$("tab-chart").addEventListener("click", () => setTab("chart"));
+$("tab-table").addEventListener("click", () => setTab("table"));
+$("ycol").addEventListener("change", paint);
+let frame = 0;
+new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(paint); }).observe($("viz"));
 
 function csv() {
   const rows = lastLines.map((l) => JSON.parse(l));

@@ -2,6 +2,7 @@
 // and terminating this worker is how a query is cancelled. Each segment is fetched whole, checked
 // against the SHA-256 its key names, and kept in the origin-private file system.
 import init, { Nest, wasmMemory } from "./pkg/burrmill_wasm.js";
+import { prepare } from "./chart.js";
 
 const CONCURRENCY = 16;
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -92,9 +93,14 @@ async function query({ sql }) {
   const before = { ...counts };
   const t = performance.now();
   const text = await engine.queryLines(sql);
+  const ms = performance.now() - t;
+  let chart = null;
+  try { chart = prepare(text.split("\n").filter((l) => l.length)); }
+  catch (e) { console.warn("no chart:", e); }
   return {
     text,
-    ms: performance.now() - t,
+    chart,
+    ms,
     fetched: counts.fetched - before.fetched,
     cached: counts.cached - before.cached,
     bytes: counts.bytes - before.bytes,
