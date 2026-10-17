@@ -3,6 +3,7 @@
 
 mod civil;
 pub mod nest;
+pub mod sealer;
 pub mod tail;
 
 #[cfg(target_arch = "wasm32")]
@@ -156,6 +157,59 @@ mod bindings {
                 .collect();
             let out = self.0.decode(&logs, &times).map_err(err)?;
             serde_json::to_string(&out).map_err(err)
+        }
+    }
+
+    /// The tab's sealer for one nest, resumed from its seed snapshot. Block numbers cross as numbers,
+    /// which hold them exactly below 2^53.
+    #[wasm_bindgen(js_name = Sealer)]
+    pub struct JsSealer {
+        sealer: crate::sealer::Sealer,
+        last: Vec<crate::sealer::Sealed>,
+    }
+
+    #[wasm_bindgen(js_class = Sealer)]
+    impl JsSealer {
+        #[wasm_bindgen(constructor)]
+        pub fn new(watermark: f64, seal_span: f64) -> JsSealer {
+            JsSealer {
+                sealer: crate::sealer::Sealer::new(watermark as u64, seal_span as u64),
+                last: Vec::new(),
+            }
+        }
+
+        pub fn watermark(&self) -> f64 {
+            self.sealer.watermark() as f64
+        }
+
+        #[wasm_bindgen(js_name = addTail)]
+        pub fn add_tail(
+            &mut self,
+            table: &str,
+            from_block: f64,
+            to_block: f64,
+            bytes: Vec<u8>,
+            hash: &str,
+        ) -> Result<(), JsError> {
+            self.sealer
+                .add_tail(table, from_block as u64, to_block as u64, bytes, hash)
+                .map_err(err)
+        }
+
+        /// `rows` as `Decoder` answers them. Answers how many were new.
+        pub fn push(&mut self, rows: &str) -> Result<usize, JsError> {
+            let rows = serde_json::from_str(rows).map_err(err)?;
+            self.sealer.push(&rows).map_err(err)
+        }
+
+        /// Seal through `ceiling`. Answers the segments as a JSON array; `bytes(i)` is the i-th's file.
+        pub fn seal(&mut self, ceiling: f64) -> Result<String, JsError> {
+            self.last = self.sealer.seal(ceiling as u64).map_err(err)?;
+            serde_json::to_string(&self.last).map_err(err)
+        }
+
+        pub fn bytes(&self, i: usize) -> Option<Vec<u8>> {
+            self.last.get(i).map(|s| s.bytes.clone())
         }
     }
 

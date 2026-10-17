@@ -17,7 +17,8 @@ arrow = { version = "59", default-features = false, features = ["ipc"] }
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false }
-nuthatch-decode = { git = "https://github.com/nuthatch-org/nuthatch", rev = "570638e66a57f3ab7ba6a5f304f638b7a458ab3f" }
+nuthatch-decode = { git = "https://github.com/nuthatch-org/nuthatch", rev = "765f3672ba64be6f9f14d29c58676bb1e57eb873" }
+nuthatch-seal = { git = "https://github.com/nuthatch-org/nuthatch", rev = "765f3672ba64be6f9f14d29c58676bb1e57eb873" }
 alloy-json-abi = "1.6"
 alloy-primitives = "1.6"
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }

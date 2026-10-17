@@ -942,6 +942,7 @@ dependencies = [
  "futures",
  "js-sys",
  "nuthatch-decode",
+ "nuthatch-seal",
  "object_store",
  "send_wrapper",
  "serde",
@@ -2872,13 +2873,28 @@ dependencies = [
 [[package]]
 name = "nuthatch-decode"
 version = "3.0.0-alpha.1"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=570638e66a57f3ab7ba6a5f304f638b7a458ab3f#570638e66a57f3ab7ba6a5f304f638b7a458ab3f"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=765f3672ba64be6f9f14d29c58676bb1e57eb873#765f3672ba64be6f9f14d29c58676bb1e57eb873"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
  "alloy-primitives",
  "anyhow",
  "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "nuthatch-seal"
+version = "0.1.0"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=765f3672ba64be6f9f14d29c58676bb1e57eb873#765f3672ba64be6f9f14d29c58676bb1e57eb873"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "bytes",
+ "hex",
+ "parquet",
  "serde",
  "serde_json",
  "sha2",
@@ -2978,9 +2994,9 @@ dependencies = [
 
 [[package]]
 name = "parquet"
-version = "59.3.1"
+version = "59.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b3d2ef0fb136e9341570f219ecb168902e76079c6d81ad555f0a4840b1e08a3"
+checksum = "ff322f54b1a0f9288e614ed1f2d329b380af5476420db19f46ffb865e1163d73"
 dependencies = [
  "ahash",
  "arrow-array",
