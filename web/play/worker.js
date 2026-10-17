@@ -83,7 +83,7 @@ const MAX_TAIL = 50_000;
 async function open({ base, views, decoder: decoderUrl }) {
   await ready;
   const [manifestText, schemaText, decoderJson] = await Promise.all([
-    fetch(`${base}/manifest.json`).then((r) => { if (!r.ok) throw new Error(`manifest: HTTP ${r.status}`); return r.text(); }),
+    fetch(`${base}/manifest.json`, { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`manifest: HTTP ${r.status}`); return r.text(); }),
     fetch(`${base}/schema.json`).then((r) => (r.ok ? r.text() : undefined)),
     decoderUrl ? fetch(decoderUrl).then((r) => (r.ok ? r.json() : null)) : null,
   ]);
@@ -176,7 +176,7 @@ async function saveState() {
   catch { /* a refused store only costs sealing again after a discard */ }
 }
 async function bytesOf(hash, url) {
-  const kept = local.get(hash) ?? (await opfsGet(hash)) ?? (url ? new Uint8Array(await (await fetch(url)).arrayBuffer()) : null);
+  const kept = local.get(hash) ?? (await opfsGet(hash)) ?? (url ? new Uint8Array(await (await fetch(url, { cache: "no-cache" })).arrayBuffer()) : null);
   if (!kept) throw new Error(`segment ${hash.slice(0, 12)}… is no longer in this browser`);
   if (hex(await crypto.subtle.digest("SHA-256", kept)) !== hash) throw new Error(`${url}: content is not ${hash.slice(0, 12)}…`);
   local.set(hash, kept);
@@ -189,7 +189,7 @@ async function startSealing() {
   if (sealing) return null;
   const span = SEAL_SPAN[chainId];
   if (!span) throw new Error(`the tab does not know chain ${chainId}'s seal span`);
-  const seed = await fetch(`${cur.base}/_seed/seed.json`).then((r) => (r.ok ? r.json() : null));
+  const seed = await fetch(`${cur.base}/_seed/seed.json`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null));
   if (!seed) throw new Error("the mirror has no seed snapshot to resume sealing from");
   if (seed.catalogue_sha256 !== (await sha(cur.manifestText))) throw new Error("the mirror changed while this page opened it; reload to seal");
   const published = new Set(Object.entries(JSON.parse(cur.manifestText).tables).flatMap(([t, ss]) => ss.map((s) => `${t} ${s.hash}`)));
