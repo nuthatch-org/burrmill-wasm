@@ -2873,7 +2873,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-decode"
 version = "3.0.0-alpha.1"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=765f3672ba64be6f9f14d29c58676bb1e57eb873#765f3672ba64be6f9f14d29c58676bb1e57eb873"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=3816e40ff5f3605fd448bdb28980fc61139ea3ea#3816e40ff5f3605fd448bdb28980fc61139ea3ea"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
@@ -2888,7 +2888,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-seal"
 version = "0.1.0"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=765f3672ba64be6f9f14d29c58676bb1e57eb873#765f3672ba64be6f9f14d29c58676bb1e57eb873"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=3816e40ff5f3605fd448bdb28980fc61139ea3ea#3816e40ff5f3605fd448bdb28980fc61139ea3ea"
 dependencies = [
  "anyhow",
  "arrow",
