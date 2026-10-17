@@ -53,7 +53,7 @@ async function openNest(i, then) {
   nest = index.nests[i];
   startWorker();
   status(`opening ${nest.nest}…`);
-  opened = await call("open", { base: `${index.base}/${nest.dataset}`, views: nest.views.map((v) => v.text) });
+  opened = await call("open", { base: `${index.base}/${nest.dataset}`, views: nest.views.map((v) => v.text), decoder: nest.decoder && new URL(nest.decoder, location.href).href });
   $("views").replaceChildren(...opened.views.map((v) => {
     const b = Object.assign(document.createElement("button"), { textContent: v, className: "view" });
     b.addEventListener("click", () => { $("sql").value = `SELECT * FROM "${v}"`; showSource(v); run(); });
@@ -76,10 +76,33 @@ async function openNest(i, then) {
     b.addEventListener("click", () => { $("sql").value = q; run(); });
     return b;
   }));
+  await refreshTail();
   if (then) { $("sql").value = then; run(); }
   else {
     if (opened.views[0]) { $("sql").value = `SELECT * FROM "${opened.views[0]}"`; showSource(opened.views[0]); run(); }
     else status(`${nest.nest} ready.`);
+  }
+}
+
+// RFC-0065 S3: the blocks past the mirror's cut, fetched from an RPC and decoded here. Only a page
+// that can say so fetches it, since its rows are whatever that RPC answered.
+const RPCS = { 1: "https://ethereum-rpc.publicnode.com", 42161: "https://arbitrum-one-rpc.publicnode.com" };
+const ownRpc = (chain) => { try { return localStorage.getItem(`play.rpc.${chain}`) || null; } catch { return null; } };
+async function refreshTail() {
+  const box = $("tail-note");
+  if (!box) return;
+  const sealed = `Sealed through block ${opened.sealed_through.toLocaleString()} on the mirror.`;
+  if (opened.tail.refused) { box.textContent = `${sealed} No live tail: ${opened.tail.refused}`; return; }
+  const chain = opened.tail.chain_id;
+  const rpc = ownRpc(chain) ?? RPCS[chain];
+  if ($("rpc")) $("rpc").value = ownRpc(chain) ?? "";
+  if (!rpc) { box.textContent = `${sealed} No public RPC is known for chain ${chain}: add your own for a live tail.`; return; }
+  box.textContent = `${sealed} Fetching the live tail from ${new URL(rpc).host}…`;
+  try {
+    const t = await call("tail", { rpc });
+    box.textContent = `${sealed} Live tail to block ${t.to.toLocaleString()} from ${t.host}: ${t.rows.toLocaleString()} rows in ${duration(t.ms)}, not sealed and not verified, refetched on refresh.`;
+  } catch (e) {
+    box.textContent = `${sealed} No live tail: ${e?.message ?? e}`;
   }
 }
 
@@ -224,6 +247,24 @@ $("run").addEventListener("click", run);
 $("cancel").addEventListener("click", () => { startWorker(); status("cancelled; reopening…"); openNest(+$("nest").value); });
 $("csv").addEventListener("click", csv);
 $("sql").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run(); });
+$("tail-refresh")?.addEventListener("click", async () => {
+  if (running) return;
+  await refreshTail();
+  run();
+});
+$("rpc")?.addEventListener("change", async (e) => {
+  const chain = opened?.tail?.chain_id;
+  if (!chain) return;
+  const url = e.target.value.trim();
+  if (url) {
+    try { new URL(url); } catch { $("tail-note").textContent = "That is not a URL."; return; }
+  }
+  // The visitor's own endpoint may carry a key, so it stays in this browser and out of the address bar.
+  try { url ? localStorage.setItem(`play.rpc.${chain}`, url) : localStorage.removeItem(`play.rpc.${chain}`); } catch { /* this visit only */ }
+  if (running) return;
+  await refreshTail();
+  run();
+});
 $("clear").addEventListener("click", async () => {
   try { await call("clearCache"); status("cache cleared"); } catch { status("nothing cached"); }
 });

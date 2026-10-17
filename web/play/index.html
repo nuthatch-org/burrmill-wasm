@@ -30,6 +30,9 @@
   select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
   #about { color: var(--faint); font-size: 0.85rem; }
   #about a { color: var(--accent); }
+  .tail-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--faint); font-size: 0.85rem; margin-bottom: 4px; }
+  #tail-note { flex: 1 1 32rem; }
+  #rpc { flex: 0 1 22rem; min-width: 12rem; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
   code { background: var(--code); padding: 1px 4px; border-radius: 4px; font-size: 0.85em; }
   .layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; margin-top: 12px; }
   @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } #views { max-height: 160px; } }
@@ -87,6 +90,11 @@
   <div class="bar">
     <select id="nest" aria-label="nest"></select>
     <span id="about"></span>
+  </div>
+  <div class="tail-bar">
+    <span id="tail-note"></span>
+    <button id="tail-refresh" class="quiet" title="Fetch the blocks past the mirror again">Refresh tail</button>
+    <input id="rpc" type="url" spellcheck="false" placeholder="your own RPC URL (kept in this browser)" aria-label="RPC URL for the live tail">
   </div>
   <div class="layout">
     <aside>

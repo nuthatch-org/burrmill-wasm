@@ -5,6 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f pkg/web/burrmill_wasm_bg.wasm ] || { echo "no pkg/web: run scripts/build.sh first" >&2; exit 1; }
 rm -rf dist/play && mkdir -p dist/play/pkg
-cp web/play/index.html web/play/play.js web/play/worker.js web/play/chart.js web/play/nests.json web/play/compare.html web/play/compare.js web/duckbind.js dist/play/
+cp web/play/index.html web/play/play.js web/play/worker.js web/play/chart.js web/play/tail.js web/play/nests.json web/play/compare.html web/play/compare.js web/duckbind.js dist/play/
+cp -R web/play/nests dist/play/nests
 cp pkg/web/burrmill_wasm.js pkg/web/burrmill_wasm_bg.wasm dist/play/pkg/
 du -sh dist/play
