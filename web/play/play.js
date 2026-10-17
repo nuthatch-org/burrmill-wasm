@@ -88,6 +88,21 @@ async function openNest(i, then) {
 // that can say so fetches it, since its rows are whatever that RPC answered.
 const RPCS = { 1: "https://ethereum-rpc.publicnode.com", 42161: "https://arbitrum-one-rpc.publicnode.com" };
 const ownRpc = (chain) => { try { return localStorage.getItem(`play.rpc.${chain}`) || null; } catch { return null; } };
+// RFC-0065 S4: the second, independent RPC that must agree a block is final before the tab seals it.
+const SECOND = { 1: "https://rpc.flashbots.net" };
+function sealedHere(s) {
+  const parts = [`Sealed through block ${s.mirror_through.toLocaleString()} on the mirror, with the nest's provisional tails.`];
+  parts.push(s.sealed_here
+    ? `This tab sealed ${s.sealed_here} more segments through block ${s.sealed_through.toLocaleString()}, against finality ${s.host} and ${s.second} agreed on, which is not authenticated.`
+    : `Nothing past it is both final on ${s.host} and ${s.second} and at a cut yet, so this tab has sealed nothing.`);
+  if (s.held) parts.push(`Held back: ${s.held}.`);
+  if (s.check?.agreed || s.check?.differed) {
+    parts.push(s.check.differed
+      ? `${s.check.differed} of ${s.check.agreed + s.check.differed} segments sealed here earlier differ from the nest's, so they were discarded.`
+      : `All ${s.check.agreed} segments sealed here earlier have since been published by the nest, with the same hashes.`);
+  }
+  return parts.join(" ");
+}
 async function refreshTail() {
   const box = $("tail-note");
   if (!box) return;
@@ -98,11 +113,22 @@ async function refreshTail() {
   if ($("rpc")) $("rpc").value = ownRpc(chain) ?? "";
   if (!rpc) { box.textContent = `${sealed} No public RPC is known for chain ${chain}: add your own for a live tail.`; return; }
   box.textContent = `${sealed} Fetching the live tail from ${new URL(rpc).host}…`;
+  const second = SECOND[chain];
+  let why = "";
+  if (second && new URL(second).host !== new URL(rpc).host) {
+    try {
+      const s = await call("seal", { rpc, second });
+      box.textContent = [sealedHere(s), `Live tail to block ${s.to.toLocaleString()}: ${s.rows.toLocaleString()} rows past it, not sealed and not verified.`].join(" ");
+      return;
+    } catch (e) {
+      why = ` Not sealing in this tab: ${e?.message ?? e}.`;
+    }
+  }
   try {
     const t = await call("tail", { rpc });
-    box.textContent = `${sealed} Live tail to block ${t.to.toLocaleString()} from ${t.host}: ${t.rows.toLocaleString()} rows in ${duration(t.ms)}, not sealed and not verified, refetched on refresh.`;
+    box.textContent = `${sealed}${why} Live tail to block ${t.to.toLocaleString()} from ${t.host}: ${t.rows.toLocaleString()} rows in ${duration(t.ms)}, not sealed and not verified, refetched on refresh.`;
   } catch (e) {
-    box.textContent = `${sealed} No live tail: ${e?.message ?? e}`;
+    box.textContent = `${sealed}${why} No live tail: ${e?.message ?? e}`;
   }
 }
 

@@ -196,6 +196,10 @@ mod bindings {
                 .map_err(err)
         }
 
+        pub fn clear(&mut self) {
+            self.sealer.clear();
+        }
+
         /// `rows` as `Decoder` answers them. Answers how many were new.
         pub fn push(&mut self, rows: &str) -> Result<usize, JsError> {
             let rows = serde_json::from_str(rows).map_err(err)?;

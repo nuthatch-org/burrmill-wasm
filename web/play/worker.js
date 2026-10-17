@@ -1,9 +1,10 @@
 // The engine and its segment store, off the page's thread: a heavy view no longer freezes the tab,
 // and terminating this worker is how a query is cancelled. Each segment is fetched whole, checked
 // against the SHA-256 its key names, and kept in the origin-private file system.
-import init, { Nest, Decoder, wasmMemory } from "./pkg/burrmill_wasm.js";
+import init, { Nest, Decoder, Sealer, wasmMemory } from "./pkg/burrmill_wasm.js";
 import { prepare } from "./chart.js";
 import { fetchTail, headBlock, MARGIN } from "./tail.js";
+import { agreedCeiling } from "./finality.js";
 
 const CONCURRENCY = 16;
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -37,6 +38,8 @@ function segmentStore(base) {
   const release = () => { const next = waiting.shift(); next ? next() : active--; };
   async function fetchVerified(key) {
     const want = key.split("/").pop().replace(/\.parquet$/, "");
+    const mine = local.get(want);
+    if (mine) return mine;
     const kept = await opfsGet(want);
     if (kept) { counts.cached++; return kept; }
     await acquire();
@@ -84,14 +87,13 @@ async function open({ base, views, decoder: decoderUrl }) {
     fetch(`${base}/schema.json`).then((r) => (r.ok ? r.text() : undefined)),
     decoderUrl ? fetch(decoderUrl).then((r) => (r.ok ? r.json() : null)) : null,
   ]);
-  engine?.free();
   decoder?.free();
   decoder = null;
   refused = decoderJson ? null : "this nest has no published config";
   chainId = null;
-  const store = segmentStore(base);
-  engine = new Nest(store.size, store.read, "", manifestText, schemaText);
-  for (const text of views) engine.addViews(text);
+  sealing = null;
+  cur = { base, views, manifestText, schemaText, store: segmentStore(base) };
+  bind();
   if (decoderJson) {
     try {
       decoder = new Decoder(decoderJson.config, JSON.stringify(decoderJson.abis));
@@ -133,6 +135,134 @@ async function fetchAndBind(rpc) {
   return { from: cut + 1, to: head, rows, logs: got.logs, undecoded: got.undecoded, ms: performance.now() - t, host: new URL(rpc).host };
 }
 
+// RFC-0065 S4: sealing in the tab. The open nest, kept so the engine can be bound again over what
+// this tab has sealed, and the sealer resumed from the mirror's seed snapshot.
+let cur = null;
+let sealing = null;
+/// Segment bytes sealed here or taken from the seed snapshot, by hash.
+const local = new Map();
+/// Blocks a held range may span before it is cut: nuthatch's per-chain `seal_span` (src/chains.rs).
+const SEAL_SPAN = { 1: 1800 };
+
+const sha = async (text) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+const stateName = () => `${cur.base.split("/").pop()}.json`;
+
+/// The engine over the mirror's catalogue, the seed snapshot's tails and every segment sealed here.
+function bind() {
+  const m = JSON.parse(cur.manifestText);
+  if (sealing) {
+    const add = (s) => (m.tables[s.table] ??= []).push({ hash: s.hash, from_block: s.from_block, to_block: s.to_block, rows: s.rows });
+    for (const s of sealing.finals) add(s);
+    for (const s of Object.values(sealing.tails)) add(s);
+  }
+  engine?.free();
+  engine = new Nest(cur.store.size, cur.store.read, "", JSON.stringify(m), cur.schemaText);
+  for (const text of cur.views) engine.addViews(text);
+}
+
+async function tabDir() {
+  try { return await (await navigator.storage.getDirectory()).getDirectoryHandle("sealed", { create: true }); }
+  catch { return null; }
+}
+async function loadState() {
+  try { return JSON.parse(await (await (await (await tabDir()).getFileHandle(stateName())).getFile()).text()); }
+  catch { return null; }
+}
+async function saveState() {
+  const dir = await tabDir();
+  if (!dir) return;
+  const { sealer, ...kept } = sealing;
+  try { const w = await (await dir.getFileHandle(stateName(), { create: true })).createWritable(); await w.write(JSON.stringify({ ...kept, watermark: sealer.watermark() })); await w.close(); }
+  catch { /* a refused store only costs sealing again after a discard */ }
+}
+async function bytesOf(hash, url) {
+  const kept = local.get(hash) ?? (await opfsGet(hash)) ?? (url ? new Uint8Array(await (await fetch(url)).arrayBuffer()) : null);
+  if (!kept) throw new Error(`segment ${hash.slice(0, 12)}… is no longer in this browser`);
+  if (hex(await crypto.subtle.digest("SHA-256", kept)) !== hash) throw new Error(`${url}: content is not ${hash.slice(0, 12)}…`);
+  local.set(hash, kept);
+  return kept;
+}
+
+/// Resume from what this tab sealed before, if the mirror has not overtaken it and agrees with every
+/// segment both have, else from the mirror's seed snapshot. Answers how the comparison went.
+async function startSealing() {
+  if (sealing) return null;
+  const span = SEAL_SPAN[chainId];
+  if (!span) throw new Error(`the tab does not know chain ${chainId}'s seal span`);
+  const seed = await fetch(`${cur.base}/_seed/seed.json`).then((r) => (r.ok ? r.json() : null));
+  if (!seed) throw new Error("the mirror has no seed snapshot to resume sealing from");
+  if (seed.catalogue_sha256 !== (await sha(cur.manifestText))) throw new Error("the mirror changed while this page opened it; reload to seal");
+  const published = new Set(Object.entries(JSON.parse(cur.manifestText).tables).flatMap(([t, ss]) => ss.map((s) => `${t} ${s.hash}`)));
+  for (const [t, s] of Object.entries(seed.tails)) published.add(`${t} ${s.hash}`);
+
+  const kept = await loadState();
+  const check = { agreed: 0, differed: 0 };
+  let resume = kept && kept.chain_id === chainId && kept.watermark > seed.complete_through;
+  for (const s of kept?.finals ?? []) {
+    if (s.to_block > seed.complete_through) continue;
+    if (published.has(`${s.table} ${s.hash}`)) check.agreed++;
+    else { check.differed++; console.warn("sealed here, not on the mirror:", s); }
+  }
+  // A segment straddling the mirror's watermark was cut where the nest did not cut.
+  if (check.differed || (kept?.finals ?? []).some((s) => s.from_block <= seed.complete_through && s.to_block > seed.complete_through)) resume = false;
+
+  if (resume) {
+    const finals = kept.finals.filter((s) => s.to_block > seed.complete_through);
+    try { for (const s of [...finals, ...Object.values(kept.tails)]) await bytesOf(s.hash, null); }
+    catch { resume = false; }
+    if (resume) sealing = { chain_id: chainId, sealer: new Sealer(kept.watermark, span), finals, tails: kept.tails };
+  }
+  if (!resume) {
+    sealing = { chain_id: chainId, sealer: new Sealer(seed.complete_through, span), finals: [], tails: {} };
+    for (const [t, s] of Object.entries(seed.tails)) sealing.tails[t] = { ...s, table: t };
+  }
+  sealing.mirror_through = seed.complete_through;
+  for (const [t, s] of Object.entries(sealing.tails)) {
+    const bytes = await bytesOf(s.hash, `${cur.base}/_seed/${t}.tail`);
+    sealing.sealer.addTail(t, s.from_block, s.to_block, bytes, s.hash);
+  }
+  return check;
+}
+
+/// Fetch past this tab's last seal from `rpc`, seal what `rpc` and `second` agree is final, and bind
+/// the rest as the unsealed tail. Segments sealed here are marked as against unauthenticated finality.
+async function seal({ rpc, second }) {
+  if (!decoder) throw new Error(`no live tail: ${refused}`);
+  const t = performance.now();
+  for (const url of [rpc, second]) {
+    const reply = await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 0, method: "eth_chainId", params: [] }) })).json();
+    const served = Number(BigInt(reply.result));
+    if (served !== chainId) throw new Error(`${new URL(url).host} serves chain ${served}; this nest is on chain ${chainId}`);
+  }
+  const check = await startSealing();
+  const mirrorThrough = sealing.mirror_through;
+  const { sealer } = sealing;
+  const floor = sealer.watermark();
+  const head = await headBlock(rpc);
+  if (head - floor > MAX_TAIL) throw new Error(`this tab's last seal is ${(head - floor).toLocaleString()} blocks behind the head, more than a tab fetches (${MAX_TAIL.toLocaleString()})`);
+  const got = await fetchTail({ rpc, decoder, from: floor + 1, to: head });
+  const agreed = await agreedCeiling({ a: rpc, b: second, logs: got.raw, filter: JSON.parse(decoder.filter()), floor });
+  sealer.clear();
+  sealer.push(JSON.stringify(got.rows));
+  const out = JSON.parse(sealer.seal(agreed.ceiling));
+  for (const [i, s] of out.entries()) {
+    const bytes = sealer.bytes(i);
+    local.set(s.hash, bytes);
+    await opfsPut(s.hash, bytes);
+    delete sealing.tails[s.table];
+    if (s.provisional) sealing.tails[s.table] = s;
+    else sealing.finals.push(s);
+  }
+  await saveState();
+  bind();
+  const rows = engine.setTail(JSON.stringify(got.rows));
+  return {
+    mirror_through: mirrorThrough, sealed_through: sealer.watermark(), sealed_now: out.filter((s) => !s.provisional).length, sealed_here: sealing.finals.length,
+    held: agreed.reason, to: head, rows, logs: got.logs, ms: performance.now() - t,
+    host: new URL(rpc).host, second: new URL(second).host, check,
+  };
+}
+
 async function query({ sql }) {
   const before = { ...counts };
   const t = performance.now();
@@ -162,7 +292,7 @@ async function clearCache() {
 // The browser's own record of what this worker fetched, independent of the counts above.
 const resources = () => performance.getEntriesByType("resource").map((e) => ({ url: e.name, bytes: e.transferSize, ms: Math.round(e.duration) }));
 
-const handlers = { open, tail, query, clearCache, resources };
+const handlers = { open, tail, seal: (a) => seal(a).catch((e) => { engine.setTail("{}"); throw e; }), query, clearCache, resources };
 self.onmessage = async ({ data: { id, op, args } }) => {
   try { self.postMessage({ id, ok: await handlers[op](args) }); }
   catch (e) { self.postMessage({ id, err: String(e?.message ?? e) }); }

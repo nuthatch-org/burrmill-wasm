@@ -76,5 +76,5 @@ export async function fetchTail({ rpc, decoder, from, to, chunk = 2000, log = ()
     checked = sample.length + missing.length;
   }
   const decoded = JSON.parse(decoder.decode(JSON.stringify(logs), JSON.stringify(times)));
-  return { ...decoded, checked, from, to };
+  return { ...decoded, checked, from, to, raw: logs };
 }

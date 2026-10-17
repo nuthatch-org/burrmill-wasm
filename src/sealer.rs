@@ -83,6 +83,12 @@ impl Sealer {
         Ok(())
     }
 
+    /// Drop every held row: a refresh refetches from the watermark, and rows not yet final may have
+    /// been reorged since.
+    pub fn clear(&mut self) {
+        self.held.clear();
+    }
+
     /// Decoded rows (table to rows, as `Decoder` answers them). Rows at or below the watermark are
     /// dropped, and a row already held is a duplicate unless it differs, which is refused.
     pub fn push(&mut self, rows: &BTreeMap<String, Vec<Value>>) -> Result<usize> {
