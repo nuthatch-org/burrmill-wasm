@@ -3,6 +3,7 @@
 
 mod civil;
 pub mod nest;
+pub mod tail;
 
 #[cfg(target_arch = "wasm32")]
 mod js_store;
@@ -92,6 +93,69 @@ mod bindings {
                     .map_err(|e| JsValue::from(err(e)))?;
                 Ok(JsValue::from_str(&text))
             })
+        }
+    }
+
+    #[wasm_bindgen(js_class = Nest)]
+    impl JsNest {
+        /// Each table's last sealed block on the mirror, as a JSON object.
+        pub fn covered(&self) -> Result<String, JsError> {
+            let nest = self
+                .0
+                .try_lock()
+                .ok_or_else(|| err("a statement is running"))?;
+            serde_json::to_string(&nest.covered()).map_err(err)
+        }
+
+        /// Replace the unsealed rows with `rows` (a JSON object of table to rows, as `Decoder`
+        /// answers them). Answers how many rows were past their table's last seal and kept.
+        #[wasm_bindgen(js_name = setTail)]
+        pub fn set_tail(&self, rows: &str) -> Result<usize, JsError> {
+            let mut nest = self
+                .0
+                .try_lock()
+                .ok_or_else(|| err("a statement is running"))?;
+            let rows = serde_json::from_str(rows).map_err(err)?;
+            Ok(nest.set_tail(rows))
+        }
+    }
+
+    /// nuthatch's decoder for one nest, built from its `nuthatch.toml` and ABI files.
+    #[wasm_bindgen(js_name = Decoder)]
+    pub struct JsDecoder(crate::tail::Decoder);
+
+    #[wasm_bindgen(js_class = Decoder)]
+    impl JsDecoder {
+        /// `abis` is a JSON object of each ABI path the config names to that file's text.
+        #[wasm_bindgen(constructor)]
+        pub fn new(config: &str, abis: &str) -> Result<JsDecoder, JsError> {
+            let abis = serde_json::from_str(abis).map_err(err)?;
+            Ok(JsDecoder(
+                crate::tail::Decoder::from_nest(config, &abis).map_err(err)?,
+            ))
+        }
+
+        /// The `eth_getLogs` filter, without its block range, as JSON.
+        pub fn filter(&self) -> String {
+            self.0.filter().to_string()
+        }
+
+        pub fn timestamps(&self) -> bool {
+            self.0.timestamps()
+        }
+
+        /// `logs` as `eth_getLogs` returns them and `times` a JSON object of block number to unix
+        /// seconds. Answers `{rows, logs, undecoded, removed}` as JSON.
+        pub fn decode(&self, logs: &str, times: &str) -> Result<String, JsError> {
+            let logs: Vec<serde_json::Value> = serde_json::from_str(logs).map_err(err)?;
+            let times: std::collections::HashMap<String, u64> =
+                serde_json::from_str(times).map_err(err)?;
+            let times = times
+                .into_iter()
+                .filter_map(|(k, v)| Some((k.parse().ok()?, v)))
+                .collect();
+            let out = self.0.decode(&logs, &times).map_err(err)?;
+            serde_json::to_string(&out).map_err(err)
         }
     }
 
