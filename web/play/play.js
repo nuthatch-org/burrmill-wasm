@@ -78,8 +78,8 @@ async function openNest(i, then) {
   }));
   if (then) { $("sql").value = then; run(); }
   else {
-    if (opened.views[0]) $("sql").value = `SELECT * FROM "${opened.views[0]}"`;
-    status(`${nest.nest} ready. The first query on a view downloads the segments it reads and checks each one; this browser keeps them for next time.`);
+    if (opened.views[0]) { $("sql").value = `SELECT * FROM "${opened.views[0]}"`; showSource(opened.views[0]); run(); }
+    else status(`${nest.nest} ready.`);
   }
 }
 
@@ -265,6 +265,6 @@ window.__bench = async () => {
 };
 
 const params = new URLSearchParams(location.search);
-let start = Math.max(0, index.nests.findIndex((n) => n.nest === (params.get("nest") ?? "graph-allocations-nest")));
+let start = Math.max(0, index.nests.findIndex((n) => n.nest === (params.get("nest") ?? "defi-pulse-nest")));
 $("nest").value = start;
 openNest(start, params.get("q")).catch((err) => status(String(err?.message ?? err), true));
