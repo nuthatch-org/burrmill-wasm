@@ -136,7 +136,7 @@ impl Decoder {
                 out.removed += 1;
                 continue;
             }
-            let log = parse_log(v)?;
+            let log = Log::from_rpc(v).map_err(|e| e.to_string())?;
             let start = self
                 .starts
                 .get(&log.address.to_ascii_lowercase())
@@ -164,36 +164,4 @@ impl Decoder {
         }
         Ok(out)
     }
-}
-
-/// nuthatch's `rpc::parse_log`.
-fn parse_log(v: &Value) -> Result<Log> {
-    let field = |key: &str| -> Result<String> {
-        v.get(key)
-            .and_then(Value::as_str)
-            .map(String::from)
-            .ok_or_else(|| format!("log missing field '{key}'"))
-    };
-    let hex = |s: String| -> Result<u64> {
-        u64::from_str_radix(s.strip_prefix("0x").unwrap_or(&s), 16)
-            .map_err(|_| format!("bad hex number '{s}'"))
-    };
-    let topics = v
-        .get("topics")
-        .and_then(Value::as_array)
-        .map(|t| {
-            t.iter()
-                .filter_map(|x| x.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    Ok(Log {
-        address: field("address")?,
-        topics,
-        data: field("data").unwrap_or_default(),
-        block_number: hex(field("blockNumber")?)?,
-        block_hash: field("blockHash").unwrap_or_default(),
-        tx_hash: field("transactionHash")?,
-        log_index: hex(field("logIndex")?)?,
-    })
 }

@@ -2872,7 +2872,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-decode"
 version = "3.0.0-alpha.1"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=166ca3562ec6fc14f14b5df102046798958681fb#166ca3562ec6fc14f14b5df102046798958681fb"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=570638e66a57f3ab7ba6a5f304f638b7a458ab3f#570638e66a57f3ab7ba6a5f304f638b7a458ab3f"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
