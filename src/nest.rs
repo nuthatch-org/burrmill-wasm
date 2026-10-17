@@ -158,11 +158,17 @@ impl Nest {
         Ok(text)
     }
 
-    async fn query_each(&mut self, sql: &str, mut f: impl FnMut(Value) -> Result<()>) -> Result<()> {
+    async fn query_each(
+        &mut self,
+        sql: &str,
+        mut f: impl FnMut(Value) -> Result<()>,
+    ) -> Result<()> {
         self.prepare(sql).await?;
         let mut failed = None;
         let mut each = |b: arrow::record_batch::RecordBatch| {
-            for r in burrmill::df::encode::rows(&b)? {
+            let civil = crate::civil::Columns::of(&b.schema());
+            for mut r in burrmill::df::encode::rows(&b)? {
+                civil.rewrite(&mut r);
                 if let Err(e) = f(r) {
                     failed = Some(e);
                     return Err(burrmill::BurrmillError::Cancelled);
@@ -240,7 +246,6 @@ impl Nest {
         });
         futures::future::try_join_all(heads).await
     }
-
 }
 
 /// nuthatch's `split_sql_statements`: on `;` outside quotes, `--` comments dropped.

@@ -1,6 +1,7 @@
 //! Burrmill compiled for a browser tab. `nest` is the work and runs on both targets; the rest is the
 //! JavaScript surface.
 
+mod civil;
 pub mod nest;
 
 #[cfg(target_arch = "wasm32")]
@@ -43,24 +44,36 @@ mod bindings {
         /// One `views/*.sql` file, in load order. Answers how many views it declared.
         #[wasm_bindgen(js_name = addViews)]
         pub fn add_views(&self, sql: &str) -> Result<usize, JsError> {
-            let mut nest = self.0.try_lock().ok_or_else(|| err("a statement is running"))?;
+            let mut nest = self
+                .0
+                .try_lock()
+                .ok_or_else(|| err("a statement is running"))?;
             Ok(nest.add_views(sql))
         }
 
         pub fn tables(&self) -> Result<Vec<String>, JsError> {
-            let nest = self.0.try_lock().ok_or_else(|| err("a statement is running"))?;
+            let nest = self
+                .0
+                .try_lock()
+                .ok_or_else(|| err("a statement is running"))?;
             Ok(nest.tables())
         }
 
         pub fn views(&self) -> Result<Vec<String>, JsError> {
-            let nest = self.0.try_lock().ok_or_else(|| err("a statement is running"))?;
+            let nest = self
+                .0
+                .try_lock()
+                .ok_or_else(|| err("a statement is running"))?;
             Ok(nest.views())
         }
 
         /// The nest tables and authored views `sql` reaches, as `[tables, views]`: what this binds
         /// before running it, for another engine to be given the same.
         pub fn reach(&self, sql: &str) -> Result<Vec<js_sys::Array>, JsError> {
-            let nest = self.0.try_lock().ok_or_else(|| err("a statement is running"))?;
+            let nest = self
+                .0
+                .try_lock()
+                .ok_or_else(|| err("a statement is running"))?;
             let (tables, views) = nest.reach(sql).map_err(err)?;
             let arr = |s: std::collections::BTreeSet<String>| {
                 s.into_iter().map(JsValue::from).collect::<js_sys::Array>()
@@ -73,7 +86,10 @@ mod bindings {
             let nest = Rc::clone(&self.0);
             future_to_promise(async move {
                 let mut nest = nest.lock().await;
-                let text = nest.query_text(&sql, true).await.map_err(|e| JsValue::from(err(e)))?;
+                let text = nest
+                    .query_text(&sql, true)
+                    .await
+                    .map_err(|e| JsValue::from(err(e)))?;
                 Ok(JsValue::from_str(&text))
             })
         }
@@ -94,7 +110,10 @@ mod bindings {
             let nest = Rc::clone(&self.0);
             future_to_promise(async move {
                 let mut nest = nest.lock().await;
-                let text = nest.query_text(&sql, false).await.map_err(|e| JsValue::from(err(e)))?;
+                let text = nest
+                    .query_text(&sql, false)
+                    .await
+                    .map_err(|e| JsValue::from(err(e)))?;
                 Ok(JsValue::from_str(&text))
             })
         }
@@ -114,7 +133,10 @@ mod bindings {
             };
         let mut text = String::new();
         for batch in batches {
-            for r in burrmill::df::encode::rows(&batch.map_err(err)?).map_err(err)? {
+            let batch = batch.map_err(err)?;
+            let civil = crate::civil::Columns::of(&batch.schema());
+            for mut r in burrmill::df::encode::rows(&batch).map_err(err)? {
+                civil.rewrite(&mut r);
                 text.push_str(&serde_json::to_string(&r).map_err(err)?);
                 text.push('\n');
             }

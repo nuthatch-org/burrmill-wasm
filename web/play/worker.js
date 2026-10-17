@@ -109,7 +109,10 @@ async function clearCache() {
   opfs = undefined;
 }
 
-const handlers = { open, query, clearCache };
+// The browser's own record of what this worker fetched, independent of the counts above.
+const resources = () => performance.getEntriesByType("resource").map((e) => ({ url: e.name, bytes: e.transferSize, ms: Math.round(e.duration) }));
+
+const handlers = { open, query, clearCache, resources };
 self.onmessage = async ({ data: { id, op, args } }) => {
   try { self.postMessage({ id, ok: await handlers[op](args) }); }
   catch (e) { self.postMessage({ id, err: String(e?.message ?? e) }); }

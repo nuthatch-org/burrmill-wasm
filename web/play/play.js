@@ -188,6 +188,8 @@ async function digest(lines) {
 
 /// Every view of the open nest, one after another, for measuring: cold on an empty cache, then
 /// again from this browser's cache in a fresh worker.
+window.__resources = () => call("resources");
+
 window.__bench = async () => {
   const out = [];
   for (const pass of ["cold", "opfs"]) {
