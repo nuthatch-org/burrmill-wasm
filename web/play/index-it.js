@@ -72,6 +72,7 @@ export async function advance(state, { rpc, second, ceiling = Infinity, progress
       }
     });
     state.sealedTo = end;
+    next = end + 1;
     state.ms += Date.now() - t0;
     progress({ through: end, finalized, logs: state.logs, segments: count(state.manifest), ms: state.ms });
   }
