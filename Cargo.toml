@@ -11,12 +11,17 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-burrmill = { git = "https://github.com/nuthatch-org/burrmill", branch = "pete/wasm", features = ["datafusion"] }
+burrmill = { git = "https://github.com/nuthatch-org/burrmill", branch = "main", features = ["datafusion"] }
 object_store = { version = "0.13", default-features = false }
 arrow = { version = "59", default-features = false, features = ["ipc"] }
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false }
+nuthatch-decode = { git = "https://github.com/nuthatch-org/nuthatch", rev = "3816e40ff5f3605fd448bdb28980fc61139ea3ea" }
+nuthatch-seal = { git = "https://github.com/nuthatch-org/nuthatch", rev = "3816e40ff5f3605fd448bdb28980fc61139ea3ea" }
+alloy-json-abi = "1.6"
+alloy-primitives = "1.6"
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -35,3 +40,5 @@ sha2 = "0.10"
 [profile.release]
 lto = true
 codegen-units = 1
+# 5.6 MB at brotli against 7.2 MB at 3, for +28% on a 1.37M-row scan (DeFi Pulse, 2026-10-17).
+opt-level = "s"

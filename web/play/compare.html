@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engines Side by Side</title>
+<meta name="description" content="Every authored view of a published nest through Burrmill and DuckDB-Wasm in this tab, over the same segments on the public mirror, cold and warm, with the answers compared.">
+<style>
+  :root { --bg: #faf8f4; --panel: #ffffff; --ink: #1d1b18; --faint: #6b665e; --line: #e4ded3; --accent: #b5651d; --accent-ink: #ffffff; --err: #a3271b; --ok: #2f6b3a; --code: #f2ede4; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #141311; --panel: #1c1a17; --ink: #ece6dc; --faint: #a39b8f; --line: #34302a; --accent: #e0954a; --accent-ink: #141311; --err: #f08a7e; --ok: #8fcf98; --code: #26231f; }
+  }
+  :root[data-theme="dark"] { --bg: #141311; --panel: #1c1a17; --ink: #ece6dc; --faint: #a39b8f; --line: #34302a; --accent: #e0954a; --accent-ink: #141311; --err: #f08a7e; --ok: #8fcf98; --code: #26231f; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  p { color: var(--faint); max-width: 80ch; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+  select, button { font: inherit; color: inherit; }
+  select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  #go { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px; padding: 7px 16px; font-weight: 600; cursor: pointer; }
+  #go:disabled { opacity: 0.5; cursor: progress; }
+  #log { color: var(--faint); font-size: 0.85rem; min-height: 1.5em; }
+  .wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.82rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  th, td { padding: 5px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  th { background: var(--code); font-weight: 600; }
+  td.ok { color: var(--ok); } td.bad, td.err { color: var(--err); } td.err { text-align: left; white-space: normal; }
+  td.win { font-weight: 700; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Burrmill and DuckDB-Wasm, side by side</h1>
+  <p>Each authored view of the nest, run in this tab by both engines over the same segments on the public mirror. <b>Cold</b> is a fresh engine with nothing kept: every request carries a query string unique to the run, so the browser's HTTP cache cannot answer it. Burrmill fetches each segment whole and checks it against the SHA-256 its key names; DuckDB-Wasm is handed the same URLs and makes its own range requests, and checks nothing. <b>Warm</b> is the same statement again on the same engine. Burrmill's time includes encoding the rows to JSON lines; DuckDB's stops when it hands over Arrow, and its rows are encoded afterwards, untimed, so the comparison leans DuckDB's way. Both answers are compared as multisets of rows.</p>
+  <div class="bar">
+    <select id="nest" aria-label="nest"></select>
+    <button id="go">Run every view in both engines</button>
+    <span id="log"></span>
+  </div>
+  <div class="wrap"><table>
+    <thead><tr><th>view</th><th>rows</th><th>Burrmill cold</th><th>Burrmill warm</th><th>DuckDB cold</th><th>DuckDB warm</th><th>answers</th></tr></thead>
+    <tbody id="results"></tbody>
+  </table></div>
+  <p>Back to the <a href="./">playground</a>.</p>
+</main>
+<script type="module" src="./compare.js"></script>
+</body>
+</html>

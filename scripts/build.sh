@@ -21,7 +21,7 @@ wasm=target/wasm32-unknown-unknown/release/burrmill_wasm.wasm
 wasm-bindgen "$wasm" --out-dir pkg/node --target nodejs
 wasm-bindgen "$wasm" --out-dir pkg/web --target web
 for t in node web; do
-  wasm-opt -O3 --strip-debug --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
+  wasm-opt -Os --strip-debug --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext \
     --enable-mutable-globals "pkg/$t/burrmill_wasm_bg.wasm" -o "pkg/$t/burrmill_wasm_bg.wasm"
 done
 f=pkg/web/burrmill_wasm_bg.wasm

@@ -21,6 +21,8 @@ struct Manifest {
 #[derive(Debug, Deserialize)]
 struct Segment {
     hash: String,
+    #[serde(default)]
+    to_block: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +50,10 @@ pub struct Nest {
     /// Prepended to every key: the dataset's directory in the store.
     prefix: String,
     segments: BTreeMap<String, Vec<String>>,
+    /// Each table's last sealed block on the mirror: its tail starts after it.
+    covered: BTreeMap<String, u64>,
+    /// Unsealed rows per table, as nuthatch's hot store keeps them, unioned with the segments.
+    tail: BTreeMap<String, Vec<Value>>,
     declared: BTreeMap<String, Vec<(String, String)>>,
     /// In load order, lowercased names: a view builds only on views before it.
     views: Vec<(String, String)>,
@@ -86,10 +92,22 @@ impl Nest {
             "" => String::new(),
             p => format!("{p}/"),
         };
+        let covered = manifest
+            .tables
+            .iter()
+            .map(|(t, segs)| {
+                (
+                    t.clone(),
+                    segs.iter().map(|s| s.to_block).max().unwrap_or(0),
+                )
+            })
+            .collect();
         Ok(Self {
             engine,
             store,
             prefix,
+            covered,
+            tail: BTreeMap::new(),
             segments: manifest
                 .tables
                 .into_iter()
@@ -121,6 +139,39 @@ impl Nest {
 
     pub fn views(&self) -> Vec<String> {
         self.views.iter().map(|(n, _)| n.clone()).collect()
+    }
+
+    /// Each table's last block on the mirror, 0 for a table with no published segment.
+    pub fn covered(&self) -> BTreeMap<String, u64> {
+        self.tables()
+            .into_iter()
+            .map(|t| {
+                let b = self.covered.get(&t).copied().unwrap_or(0);
+                (t, b)
+            })
+            .collect()
+    }
+
+    /// Replace the unsealed rows, keeping for each table only those past its last sealed block. The
+    /// tables and the views over them are bound again by the next statement, since a view keeps the
+    /// plan it was defined with.
+    pub fn set_tail(&mut self, rows: BTreeMap<String, Vec<Value>>) -> usize {
+        let mut kept = 0;
+        self.tail = rows
+            .into_iter()
+            .map(|(t, rs)| {
+                let after = self.covered.get(&t).copied().unwrap_or(0);
+                let rs: Vec<Value> = rs
+                    .into_iter()
+                    .filter(|r| r.get("block_number").and_then(Value::as_u64) > Some(after))
+                    .collect();
+                kept += rs.len();
+                (t, rs)
+            })
+            .collect();
+        self.bound.clear();
+        self.defined.clear();
+        kept
     }
 
     /// Rows as nuthatch's `/sql` encodes them, one JSON object each.
@@ -158,11 +209,17 @@ impl Nest {
         Ok(text)
     }
 
-    async fn query_each(&mut self, sql: &str, mut f: impl FnMut(Value) -> Result<()>) -> Result<()> {
+    async fn query_each(
+        &mut self,
+        sql: &str,
+        mut f: impl FnMut(Value) -> Result<()>,
+    ) -> Result<()> {
         self.prepare(sql).await?;
         let mut failed = None;
         let mut each = |b: arrow::record_batch::RecordBatch| {
-            for r in burrmill::df::encode::rows(&b)? {
+            let civil = crate::civil::Columns::of(&b.schema());
+            for mut r in burrmill::df::encode::rows(&b)? {
+                civil.rewrite(&mut r);
                 if let Err(e) = f(r) {
                     failed = Some(e);
                     return Err(burrmill::BurrmillError::Cancelled);
@@ -190,7 +247,13 @@ impl Nest {
             let keys = self.keys(&t).await?;
             let declared = self.declared.get(&t).cloned().unwrap_or_default();
             self.engine
-                .register_store_facts(&t, &declared, keys, &[], (None, None))
+                .register_store_facts(
+                    &t,
+                    &declared,
+                    keys,
+                    self.tail.get(&t).map_or(&[], Vec::as_slice),
+                    (None, None),
+                )
                 .await
                 .map_err(|e| format!("{t}: {e}"))?;
             self.bound.insert(t);
@@ -240,7 +303,6 @@ impl Nest {
         });
         futures::future::try_join_all(heads).await
     }
-
 }
 
 /// nuthatch's `split_sql_statements`: on `;` outside quotes, `--` comments dropped.

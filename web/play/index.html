@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nest Playground</title>
+<meta name="description" content="Run SQL over a published nuthatch nest in your browser: Burrmill compiled to WebAssembly, reading content-addressed segments from the public mirror.">
+<style>
+  :root {
+    --bg: #faf8f4; --panel: #ffffff; --ink: #1d1b18; --faint: #6b665e; --line: #e4ded3;
+    --accent: #b5651d; --accent-ink: #ffffff; --err: #a3271b; --code: #f2ede4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141311; --panel: #1c1a17; --ink: #ece6dc; --faint: #a39b8f; --line: #34302a;
+      --accent: #e0954a; --accent-ink: #141311; --err: #f08a7e; --code: #26231f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141311; --panel: #1c1a17; --ink: #ece6dc; --faint: #a39b8f; --line: #34302a;
+    --accent: #e0954a; --accent-ink: #141311; --err: #f08a7e; --code: #26231f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .lede { color: var(--faint); margin: 0 0 20px; max-width: 70ch; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  select, button, textarea { font: inherit; color: inherit; }
+  select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  #about { color: var(--faint); font-size: 0.85rem; }
+  #about a { color: var(--accent); }
+  .tail-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--faint); font-size: 0.85rem; margin-bottom: 4px; }
+  #tail-note { flex: 1 1 32rem; }
+  #rpc { flex: 0 1 22rem; min-width: 12rem; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  code { background: var(--code); padding: 1px 4px; border-radius: 4px; font-size: 0.85em; }
+  .layout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; margin-top: 12px; }
+  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } #views { max-height: 160px; } }
+  #views { display: flex; flex-direction: column; gap: 2px; max-height: 70vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px; background: var(--panel); }
+  .view { text-align: left; background: none; border: 0; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; overflow-wrap: anywhere; }
+  .view:hover { background: var(--code); }
+  .side-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); margin: 0 0 6px 2px; }
+  textarea { width: 100%; min-height: 96px; resize: vertical; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  #run { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px; padding: 7px 16px; font-weight: 600; cursor: pointer; }
+  #run:disabled { opacity: 0.5; cursor: progress; }
+  .quiet { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--faint); }
+  .grow { flex: 1; }
+  #examples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .example { background: var(--code); border: 0; border-radius: 999px; padding: 3px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; cursor: pointer; color: var(--ink); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #source-box { margin-top: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  #source-box summary { cursor: pointer; padding: 8px 12px; color: var(--faint); font-size: 0.85rem; }
+  #source { margin: 0; padding: 0 12px 12px; overflow: auto; max-height: 40vh; font-size: 0.8rem; white-space: pre; }
+  .hint { color: var(--faint); font-size: 0.8rem; }
+  #status { font-size: 0.85rem; color: var(--faint); min-height: 1.5em; margin-bottom: 8px; }
+  #status.err { color: var(--err); }
+  .wrap { overflow: auto; max-height: 60vh; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  table { border-collapse: collapse; font-size: 0.82rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  th, td { padding: 4px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+  th { position: sticky; top: 0; background: var(--code); font-weight: 600; }
+  td.num { text-align: right; }
+  #more { color: var(--faint); font-size: 0.8rem; margin-top: 6px; }
+  #viz { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 10px 12px 6px; margin-bottom: 10px; }
+  .viz-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .tab { background: none; border: 0; padding: 4px 12px; cursor: pointer; color: var(--faint); }
+  .tab.on { background: var(--accent); color: var(--accent-ink); }
+  #legend { display: inline-flex; flex-wrap: wrap; gap: 10px; font-size: 0.8rem; }
+  .key::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; background: var(--k); vertical-align: -1px; }
+  #tip { min-height: 1.4em; margin: 6px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #tip span { margin-right: 12px; }
+  #chart svg { display: block; width: 100%; height: auto; }
+  #chart .grid { stroke: var(--line); stroke-width: 1; }
+  #chart .zero { stroke: var(--faint); stroke-width: 1; }
+  #chart .cross { stroke: var(--faint); stroke-dasharray: 3 3; }
+  #chart .axis { fill: var(--faint); font: 11px ui-sans-serif, system-ui, sans-serif; }
+  #stats { display: flex; flex-wrap: wrap; gap: 12px; }
+  #stats:empty { display: none; }
+  .stat { flex: 1 1 180px; padding: 14px 12px; border-radius: 8px; background: var(--code); }
+  .stat-value { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+  .stat-label { color: var(--faint); font-size: 0.8rem; margin-top: 2px; }
+  footer { margin-top: 32px; color: var(--faint); font-size: 0.82rem; max-width: 80ch; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>A nest in your browser</h1>
+  <p class="lede">SQL over a published nuthatch nest, answered in this tab. Burrmill, nuthatch's query engine, is compiled to WebAssembly and reads the nest's sealed segments from the public mirror, each checked against the content address it is stored under. No server runs your query.</p>
+  <div class="bar">
+    <select id="nest" aria-label="nest"></select>
+    <span id="about"></span>
+  </div>
+  <div class="tail-bar">
+    <span id="tail-note"></span>
+    <button id="tail-refresh" class="quiet" title="Fetch the blocks past the mirror again">Refresh tail</button>
+    <input id="rpc" type="url" spellcheck="false" placeholder="your own RPC URL (kept in this browser)" aria-label="RPC URL for the live tail">
+  </div>
+  <div class="layout">
+    <aside>
+      <p class="side-label">Authored views</p>
+      <div id="views"></div>
+    </aside>
+    <section>
+      <textarea id="sql" spellcheck="false" aria-label="SQL"></textarea>
+      <div id="examples"></div>
+      <div class="actions">
+        <button id="run">Run</button>
+        <button id="cancel" class="quiet" hidden>Cancel</button>
+        <span class="hint">Cmd/Ctrl + Enter · the address bar keeps the query, so a link reruns it</span>
+        <span class="grow"></span>
+        <button id="csv" class="quiet" hidden>Download CSV</button>
+        <button id="clear" class="quiet" title="Forget the segments kept in this browser">Clear cache</button>
+      </div>
+      <div id="status"></div>
+      <div id="viz" hidden>
+        <div class="viz-bar">
+          <div class="tabs" role="tablist">
+            <button id="tab-chart" class="tab on" role="tab" aria-selected="true">Chart</button>
+            <button id="tab-table" class="tab" role="tab" aria-selected="false">Table</button>
+          </div>
+          <select id="ycol" aria-label="column to chart"></select>
+          <span id="legend"></span>
+          <span class="grow"></span>
+          <span id="viz-note" class="hint"></span>
+        </div>
+        <div id="tip" class="hint"></div>
+        <div id="chart"></div>
+        <div id="stats"></div>
+      </div>
+      <div class="wrap" id="table-wrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+      <div id="more"></div>
+      <details id="source-box">
+        <summary>View source: <span id="source-name">hover a view</span></summary>
+        <pre id="source"></pre>
+      </details>
+    </section>
+  </div>
+  <footer>
+    The data stops at each nest's sealed watermark: the mirror publishes finalized segments only. The first query on a view downloads the segments it reads; later ones, and later visits, use the copies kept in this browser.
+    Source: <a href="https://github.com/nuthatch-org/burrmill-wasm">burrmill-wasm</a>, <a href="https://github.com/nuthatch-org/burrmill">burrmill</a>, <a href="https://nuthatch-indexer.com">nuthatch</a>.
+  </footer>
+</main>
+<script type="module" src="./play.js"></script>
+</body>
+</html>
