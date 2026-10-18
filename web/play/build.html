@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nest Builder</title>
+<meta name="description" content="Scaffold a nuthatch nest from a contract address in your browser, with nuthatch init's own code compiled to WebAssembly, and download it.">
+<style>
+  :root {
+    --bg: #faf8f4; --panel: #ffffff; --ink: #1d1b18; --faint: #6b665e; --line: #e4ded3;
+    --accent: #b5651d; --accent-ink: #ffffff; --err: #a3271b; --code: #f2ede4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141311; --panel: #1c1a17; --ink: #ece6dc; --faint: #a39b8f; --line: #34302a;
+      --accent: #e0954a; --accent-ink: #141311; --err: #f08a7e; --code: #26231f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141311; --panel: #1c1a17; --ink: #ece6dc; --faint: #a39b8f; --line: #34302a;
+    --accent: #e0954a; --accent-ink: #141311; --err: #f08a7e; --code: #26231f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 1rem; margin: 20px 0 8px; }
+  .lede { color: var(--faint); margin: 0 0 20px; max-width: 70ch; }
+  input, button, textarea, select { font: inherit; color: inherit; }
+  input, select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  #address { flex: 1 1 26rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #alias, #start { flex: 0 1 11rem; }
+  #rpc { flex: 1 1 18rem; }
+  #name { flex: 0 1 14rem; }
+  .go { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px; padding: 7px 16px; font-weight: 600; cursor: pointer; }
+  .go:disabled { opacity: 0.5; cursor: progress; }
+  .quiet { background: none; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; cursor: pointer; color: var(--faint); }
+  #status { font-size: 0.85rem; color: var(--faint); min-height: 1.5em; }
+  #status.err { color: var(--err); }
+  .card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 10px 12px; margin-bottom: 8px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; overflow-wrap: anywhere; }
+  .faint { color: var(--faint); }
+  code { background: var(--code); padding: 1px 4px; border-radius: 4px; font-size: 0.85em; }
+  #contracts .card { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+  #identity { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; }
+  #tables { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pill { background: var(--code); border-radius: 999px; padding: 2px 10px; }
+  textarea { width: 100%; min-height: 220px; resize: vertical; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
+  #out[hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Nest builder</h1>
+  <p class="lede">Paste a contract address and this tab scaffolds the nest <code>nuthatch init</code> would, with init's own code compiled to WebAssembly: the same ABI, the same tables, the same identity. Edit its views, then download it and run it with <code>nuthatch dev</code>. Nothing is sent anywhere but the RPC and Sourcify.</p>
+
+  <div class="row">
+    <input id="address" placeholder="0x… a verified Ethereum mainnet contract" spellcheck="false" autocomplete="off">
+    <input id="alias" placeholder="alias (optional)" spellcheck="false">
+    <input id="start" placeholder="start block (optional)" inputmode="numeric">
+    <button id="add" class="go">Add contract</button>
+  </div>
+  <div class="row">
+    <label class="faint" for="rpc">RPC</label>
+    <input id="rpc" value="https://ethereum-rpc.publicnode.com" spellcheck="false">
+  </div>
+  <div id="status">Loading nuthatch…</div>
+
+  <div id="out" hidden>
+    <h2>Contracts</h2>
+    <div id="contracts"></div>
+
+    <h2>Identity</h2>
+    <div class="card">
+      <div class="row"><label class="faint" for="name">Nest name</label><input id="name" spellcheck="false"></div>
+      <div id="identity" class="mono"></div>
+      <p class="faint" style="margin:8px 0 0">The NID is the key a node stores this nest's data under. Editing a view moves it; the data identity, which says what gets indexed, stays put.</p>
+    </div>
+
+    <h2>Tables</h2>
+    <div id="tables" class="mono"></div>
+
+    <h2>Views</h2>
+    <div class="row">
+      <select id="view"></select>
+      <button id="new-view" class="quiet">New view</button>
+    </div>
+    <textarea id="sql" spellcheck="false"></textarea>
+
+    <h2>Keep it</h2>
+    <div class="row">
+      <button id="download" class="go">Download the nest</button>
+      <span id="run" class="faint mono"></span>
+    </div>
+  </div>
+</main>
+<script type="module" src="./build.js"></script>
+</body>
+</html>
