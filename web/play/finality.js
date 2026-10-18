@@ -55,7 +55,12 @@ export async function agreedCeiling({ a, b, logs, filter, floor }) {
   if (ceiling <= floor) return { ceiling: floor, reason: "nothing past the last seal is finalized on both" };
   const [ha, hb] = await Promise.all([header(a, ceiling), header(b, ceiling)]);
   if (!ha?.hash || ha.hash !== hb?.hash) return { ceiling: floor, reason: `the two RPCs give block ${ceiling} different hashes` };
+  return agreedLogs({ b, logs, filter, floor, ceiling });
+}
 
+/// `ceiling`, or the block before the first in `(floor, ceiling]` for which `b` does not return
+/// exactly `logs`.
+export async function agreedLogs({ b, logs, filter, floor, ceiling }) {
   const ours = byBlock(logs, floor, ceiling);
   const theirs = byBlock(await getLogs(b, filter, floor + 1, ceiling), floor, ceiling);
   const blocks = [...new Set([...ours.keys(), ...theirs.keys()])].sort((x, y) => x - y);
