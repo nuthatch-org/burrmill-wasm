@@ -25,7 +25,9 @@ const refusedRange = (e) => /range|limit|too many|exceed|max|response size|10000
 async function getLogs(rpc, filter, from, to) {
   const out = [];
   let next = from;
-  let size = to - from + 1;
+  // Asked as the first RPC asks it, a window at a time: one call for the whole range is what slow
+  // and capped endpoints time out on.
+  let size = Math.min(to - from + 1, 2000);
   while (next <= to) {
     const end = Math.min(to, next + size - 1);
     try {

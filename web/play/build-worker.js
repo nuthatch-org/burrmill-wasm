@@ -45,7 +45,7 @@ onmessage = async ({ data }) => {
     if (data.type === "index") {
       const store = new Map();
       const done = await backfill({
-        w, files: data.files, from: data.from, rpc: data.rpc, second: data.second, store,
+        w, files: data.files, from: data.from, span: data.span, rpc: data.rpc, second: data.second, store,
         progress: (p) => postMessage({ type: "progress", ...p }),
       });
       indexed = Object.assign(done, { files: data.files, rpc: data.rpc, second: data.second });
