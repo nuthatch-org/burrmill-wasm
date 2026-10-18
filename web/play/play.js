@@ -1,6 +1,7 @@
 // A nest in a tab: pick a published nest, run SQL over its sealed segments, here. The engine runs in
 // a worker (worker.js), so the page stays responsive and Cancel can stop a statement outright.
 import { draw, stat } from "./chart.js";
+import { explainRefusal } from "./budget.js";
 
 const $ = (id) => document.getElementById(id);
 const SHOWN = 500;
@@ -171,7 +172,7 @@ async function run() {
     window.__last = { sql, rows: lastLines.length, ...r, text: undefined, chart: r.chart?.kind };
   } catch (e) {
     showViz(null);
-    status(String(e?.message ?? e), true);
+    status(explainRefusal(String(e?.message ?? e)), true);
     window.__last = { sql, error: String(e?.message ?? e) };
   } finally {
     clearInterval(tick);

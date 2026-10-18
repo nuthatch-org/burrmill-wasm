@@ -32,7 +32,8 @@ mod bindings {
     #[wasm_bindgen(js_class = Nest)]
     impl JsNest {
         /// `size(key)` and `read(key, offset, length)` answer promises of a number and of a
-        /// `Uint8Array`. `prefix` is the dataset's directory in that store.
+        /// `Uint8Array`. `prefix` is the dataset's directory in that store. Under `memory_mib`, a
+        /// statement that needs more working memory is refused rather than run.
         #[wasm_bindgen(constructor)]
         pub fn new(
             size: Function,
@@ -40,9 +41,11 @@ mod bindings {
             prefix: &str,
             manifest: &str,
             schema: Option<String>,
+            memory_mib: Option<f64>,
         ) -> Result<JsNest, JsError> {
             let store = Arc::new(JsStore::new(size, read));
-            let nest = Nest::open(store, prefix, manifest, schema.as_deref()).map_err(err)?;
+            let memory = memory_mib.map(|m| (m * 1024.0 * 1024.0) as usize);
+            let nest = Nest::open(store, prefix, manifest, schema.as_deref(), memory).map_err(err)?;
             Ok(JsNest(Rc::new(Mutex::new(nest))))
         }
 

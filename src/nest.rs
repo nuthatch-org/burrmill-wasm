@@ -69,6 +69,7 @@ impl Nest {
         prefix: &str,
         manifest: &str,
         schema: Option<&str>,
+        memory: Option<usize>,
     ) -> Result<Self> {
         let manifest: Manifest =
             serde_json::from_str(manifest).map_err(|e| format!("manifest.json: {e}"))?;
@@ -84,7 +85,13 @@ impl Nest {
                 .collect(),
             None => BTreeMap::new(),
         };
-        let engine = Engine::open_empty().map_err(|e| e.to_string())?;
+        // Under a budget a statement that needs more is refused, where unbounded it grows the tab's
+        // memory until the browser kills it.
+        let engine = match memory {
+            Some(bytes) => Engine::open_empty_within(bytes),
+            None => Engine::open_empty(),
+        }
+        .map_err(|e| e.to_string())?;
         engine
             .attach_store(Arc::clone(&store))
             .map_err(|e| e.to_string())?;
