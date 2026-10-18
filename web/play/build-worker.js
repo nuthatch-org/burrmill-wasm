@@ -1,7 +1,7 @@
 // The builder's indexer (RFC-0066 S2): backfill and seal a nest the page scaffolded, open it as the
 // playground opens a published one, keep the unsealed blocks to the head on top, and answer SQL.
 import init, * as w from "./pkg/burrmill_wasm.js";
-import { backfill, advance, openable, headRows, storeFns } from "./index-it.js";
+import { backfill, advance, openable, headRows, storeFns, unsealed } from "./index-it.js";
 import { budgetMiB } from "./budget.js";
 
 const ready = init();
@@ -17,7 +17,7 @@ function open() {
   const { size, read } = storeFns(indexed.store);
   nest = new w.Nest(size, read, "", openable(indexed), indexed.files["schema.json"], budgetMiB());
   for (const [, sql] of views) nest.addViews(sql);
-  if (indexed.rows) nest.setTail(JSON.stringify(indexed.rows));
+  nest.setTail(unsealed(indexed, indexed.rows));
 }
 
 async function follow() {
@@ -26,9 +26,9 @@ async function follow() {
       open();
       postMessage({ type: "sealed", finalized: indexed.sealedTo, segments: Object.values(indexed.manifest.tables).flat().length, tails: Object.keys(indexed.provisional).length });
     }
-    const { rows, to } = await headRows({ decoder: indexed.decoder, rpc: indexed.rpc, after: indexed.sealer.watermark() });
+    const { rows, to } = await headRows({ decoder: indexed.decoder, rpc: indexed.rpc, after: indexed.sealedTo });
     indexed.rows = rows;
-    const kept = nest.setTail(JSON.stringify(rows));
+    const kept = nest.setTail(unsealed(indexed, rows));
     postMessage({ type: "head", head: to, unsealed: kept });
   } catch (e) {
     postMessage({ type: "head", error: String(e.message ?? e) });
