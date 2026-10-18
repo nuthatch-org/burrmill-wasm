@@ -10,9 +10,11 @@ const gh = (...args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 
 const nests = [];
 for (const d of mirror.datasets) {
   const repo = d.repo.replace("https://github.com/", "");
-  const file = (path) => gh("api", "-H", "Accept: application/vnd.github.raw", `repos/${repo}/contents/${path}?ref=${d.commit}`);
+  // A repository can hold several nests, one per directory, as grt-supply-nest holds one per chain.
+  const dir = d.path ? `${d.path}/` : "";
+  const file = (path) => gh("api", "-H", "Accept: application/vnd.github.raw", `repos/${repo}/contents/${dir}${path}?ref=${d.commit}`);
   const tree = JSON.parse(gh("api", `repos/${repo}/git/trees/${d.commit}?recursive=1`));
-  const files = tree.tree.filter((e) => e.type === "blob" && /^views\/[^/]+\.sql$/.test(e.path)).map((e) => e.path).sort();
+  const files = tree.tree.filter((e) => e.type === "blob" && e.path.startsWith(`${dir}views/`) && /^views\/[^/]+\.sql$/.test(e.path.slice(dir.length))).map((e) => e.path.slice(dir.length)).sort();
   const views = files.map((path) => ({ path, text: file(path) }));
   const config = file("nuthatch.toml");
   const abis = Object.fromEntries([...config.matchAll(/^\s*abi\s*=\s*"([^"]+)"/gm)].map(([, p]) => [p, file(p)]));
