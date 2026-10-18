@@ -9,9 +9,16 @@ export const MARGIN = 1800;
 
 let id = 0;
 async function call(rpc, body) {
-  const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(`${new URL(rpc).host}: HTTP ${r.status}`);
-  return r.json();
+  // A public RPC answers a busy moment with 429, a 403 (publicnode), a 5xx or a body that is not JSON.
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch((e) => e);
+    const busy = r instanceof Error || r.status === 429 || r.status === 403 || r.status >= 500;
+    if (!busy && !r.ok) throw new Error(`${new URL(rpc).host}: HTTP ${r.status}`);
+    const j = busy ? null : await r.json().catch(() => null);
+    if (j) return j;
+    if (attempt === 5) throw new Error(`${new URL(rpc).host}: ${r instanceof Error ? r.message : `HTTP ${r.status}`}, six times`);
+    await new Promise((res) => setTimeout(res, 500 * 2 ** attempt));
+  }
 }
 async function one(rpc, method, params) {
   const j = await call(rpc, { jsonrpc: "2.0", id: ++id, method, params });

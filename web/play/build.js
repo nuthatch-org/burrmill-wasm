@@ -153,6 +153,7 @@ $("view").onchange = () => {
 $("sql").oninput = () => {
   state.files[state.view] = state.edited[state.view] = $("sql").value;
   refresh();
+  worker?.postMessage({ type: "views", id: ++qid, files: state.files });
 };
 $("new-view").onclick = () => {
   const used = Object.keys(state.files).filter((p) => p.startsWith("views/"));
@@ -167,3 +168,66 @@ init().then(
   () => status("Ready. Paste an address."),
   (e) => status(`nuthatch did not load: ${e}`, true),
 );
+
+// Index it: the worker backfills, seals and then follows the head; queries go to it.
+let worker = null;
+let qid = 0;
+
+function table(text) {
+  const rows = JSON.parse(text);
+  const cols = rows.length ? Object.keys(rows[0]) : [];
+  const head = document.createElement("tr");
+  for (const c of cols) head.append(Object.assign(document.createElement("th"), { textContent: c }));
+  const body = rows.slice(0, 500).map((r) => {
+    const tr = document.createElement("tr");
+    for (const c of cols) tr.append(Object.assign(document.createElement("td"), { textContent: r[c] === null ? "NULL" : String(r[c]) }));
+    return tr;
+  });
+  $("result").replaceChildren(head, ...body);
+  return rows.length;
+}
+
+function indexIt() {
+  if (state.contracts.some((c) => c.start_block == null)) {
+    status("Set a start block for every contract first: Sourcify had no deploy block for one.", true);
+    return;
+  }
+  worker?.terminate();
+  worker = new Worker("./build-worker.js", { type: "module" });
+  const from = Math.min(...state.contracts.map((c) => c.start_block));
+  $("index").disabled = true;
+  $("progress").textContent = `Backfilling from block ${from}…`;
+  worker.onmessage = ({ data: m }) => {
+    if (m.type === "progress") {
+      $("progress").textContent = `Sealed through ${m.through} of ${m.finalized}: ${m.logs} logs, ${m.segments} segments, ${(m.ms / 1000).toFixed(1)} s`;
+    } else if (m.type === "indexed") {
+      $("index").disabled = false;
+      $("index").textContent = "Index again";
+      $("progress").textContent = `Indexed ${m.logs} logs from block ${from} to finalized block ${m.finalized}: ${m.segments} full segments (${(m.bytes / 1024).toFixed(0)} KiB) and ${m.tails} tails, the newest rows of each table sealed but still growing, in ${(m.ms / 1000).toFixed(1)} s, ${m.mem_mib} MiB of wasm memory. Following the head.`;
+      $("query-box").hidden = false;
+      if (!$("q").value) {
+        const first = JSON.parse(state.files["schema.json"]).tables[0]?.table;
+        $("q").value = first ? `SELECT * FROM "${first}" ORDER BY block_number DESC LIMIT 20` : "SELECT 1";
+      }
+    } else if (m.type === "head") {
+      const line = $("progress").textContent.replace(/ (Following the head|Head) .*$/, "");
+      $("progress").textContent = m.error ? `${line} Head: ${m.error}` : `${line} Head ${m.head}, ${m.unsealed} unsealed rows on top.`;
+    } else if (m.type === "rows") {
+      $("qstatus").textContent = `${table(m.text)} rows in ${m.ms} ms`;
+    } else if (m.type === "error") {
+      if (m.id) $("qstatus").textContent = m.error;
+      else {
+        $("index").disabled = false;
+        $("progress").textContent = `Stopped: ${m.error}`;
+      }
+    }
+  };
+  worker.postMessage({ type: "index", files: state.files, from, rpc: $("rpc").value.trim(), second: $("second").value.trim() });
+}
+
+$("index").onclick = indexIt;
+$("query").onclick = () => {
+  $("qstatus").textContent = "running…";
+  worker?.postMessage({ type: "query", id: ++qid, sql: $("q").value });
+};
+$("q").onkeydown = (e) => (e.metaKey || e.ctrlKey) && e.key === "Enter" && $("query").click();
