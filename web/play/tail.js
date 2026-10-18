@@ -13,7 +13,8 @@ async function call(rpc, body) {
   for (let attempt = 0; ; attempt++) {
     const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch((e) => e);
     const busy = r instanceof Error || r.status === 429 || r.status === 403 || r.status >= 500;
-    if (!busy && !r.ok) throw new Error(`${new URL(rpc).host}: HTTP ${r.status}`);
+    // A 4xx can still carry the RPC's reason, which is what says a range was too wide.
+    if (!busy && !r.ok) throw new Error(`${new URL(rpc).host}: ${(await r.json().catch(() => null))?.error?.message ?? `HTTP ${r.status}`}`);
     const j = busy ? null : await r.json().catch(() => null);
     if (j) return j;
     if (attempt === 5) throw new Error(`${new URL(rpc).host}: ${r instanceof Error ? r.message : `HTTP ${r.status}`}, six times`);

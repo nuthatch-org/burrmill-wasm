@@ -69,7 +69,7 @@
   </div>
   <div class="row">
     <label class="faint" for="rpc">RPC</label>
-    <input id="rpc" value="https://ethereum-rpc.publicnode.com" spellcheck="false">
+    <input id="rpc" value="https://rpc.mevblocker.io" spellcheck="false">
   </div>
   <div id="status">Loading nuthatch…</div>
 
@@ -95,10 +95,10 @@
     <textarea id="sql" spellcheck="false"></textarea>
 
     <h2>Index it</h2>
-    <p class="faint" style="margin:0 0 8px">This tab backfills the nest from its first block and seals it with nuthatch's own sealer, then keeps the newest blocks on top. A block is sealed only when two RPCs both call it finalized, give it one hash and return the same logs for it. That is agreement, not proof: the light client the playground uses checks headers near the head, and over a backfill it would cost more than the backfill. A young contract takes a minute or two; an old, busy one will take far longer from public RPCs.</p>
+    <p class="faint" style="margin:0 0 8px">This tab backfills the nest from its first block and seals it with nuthatch's own sealer, then keeps the newest blocks on top. A block is sealed only when two RPCs both call it finalized, give it one hash and return the same logs for it. That is agreement, not proof: the light client the playground uses checks headers near the head, and over a backfill it would cost more than the backfill. A young contract takes seconds to a minute. Both default RPCs served logs 60,000 blocks back (about eight days) when this page was built; publicnode keeps about 20,000 and flashbots answers older ranges with nothing, so neither is a default. An older contract needs an RPC with full history in either box.</p>
     <div class="row">
       <label class="faint" for="second">Second RPC</label>
-      <input id="second" value="https://rpc.flashbots.net" spellcheck="false">
+      <input id="second" value="https://eth.drpc.org" spellcheck="false">
       <button id="index" class="go">Index it</button>
     </div>
     <div id="progress" class="faint mono"></div>
