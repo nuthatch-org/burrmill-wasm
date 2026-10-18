@@ -5,9 +5,11 @@ import init, * as w from "./pkg/burrmill_wasm.js";
 import { chainId, resolveContract } from "./resolve.js";
 import { zip } from "./zip.js";
 import { explainRefusal } from "./budget.js";
+import { CHAINS } from "./chains.js";
 
 const $ = (id) => document.getElementById(id);
 const state = { contracts: [], files: {}, edited: {}, view: "views/10-example.sql", id: null };
+const chain = () => CHAINS[$("chain").value];
 
 function status(text, err = false) {
   $("status").textContent = text;
@@ -19,8 +21,8 @@ const slug = (s) => s.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "") || "nest";
 function input() {
   return JSON.stringify({
     name: $("name").value.trim() || "nest",
-    chain: "mainnet",
-    chain_id: 1,
+    chain: $("chain").value,
+    chain_id: chain().id,
     rpc_urls: [$("rpc").value.trim()],
     contracts: state.contracts,
   });
@@ -33,6 +35,7 @@ function scaffold() {
 }
 
 function refresh() {
+  checkViews();
   const id = JSON.parse(w.nestIdentity(input(), JSON.stringify(state.files)));
   $("identity").replaceChildren(
     ...[["NID", id.nid], ["data identity", id.data_identity]].flatMap(([k, v]) => {
@@ -107,7 +110,7 @@ async function add() {
     const rpc = $("rpc").value.trim();
     status("Asking the RPC for the chain…");
     const id = await chainId(rpc);
-    if (id !== 1) throw new Error(`that RPC is chain ${id}; this builder scaffolds Ethereum mainnet`);
+    if (id !== chain().id) throw new Error(`that RPC is chain ${id}, not ${chain().label} (${chain().id})`);
     status("Resolving the ABI: proxy slots, then Sourcify…");
     const start = $("start").value.trim();
     const c = await resolveContract({
@@ -204,7 +207,7 @@ function indexIt() {
     } else if (m.type === "indexed") {
       $("index").disabled = false;
       $("index").textContent = "Index again";
-      $("progress").textContent = `Indexed ${m.logs} logs from block ${from} to finalized block ${m.finalized}: ${m.segments} full segments (${(m.bytes / 1024).toFixed(0)} KiB) and ${m.tails} tails, the newest rows of each table sealed but still growing, in ${(m.ms / 1000).toFixed(1)} s, ${m.mem_mib} MiB of wasm memory. Following the head.`;
+      $("progress").textContent = `Indexed ${m.logs} logs from block ${from} to finalized block ${m.finalized}: ${m.segments} full segments (${(m.bytes / 1024).toFixed(0)} KiB)${m.tails ? ` and ${m.tails} tails, a table's newest rows sealed but still growing` : ""}, in ${(m.ms / 1000).toFixed(1)} s, ${m.mem_mib} MiB of wasm memory. Following the head.`;
       $("query-box").hidden = false;
       if (!$("q").value) {
         const first = JSON.parse(state.files["schema.json"]).tables[0]?.table;
@@ -225,7 +228,7 @@ function indexIt() {
       }
     }
   };
-  worker.postMessage({ type: "index", files: state.files, from, rpc: $("rpc").value.trim(), second: $("second").value.trim() });
+  worker.postMessage({ type: "index", files: state.files, from, span: chain().span, rpc: $("rpc").value.trim(), second: $("second").value.trim() });
 }
 
 $("index").onclick = indexIt;
@@ -234,3 +237,39 @@ $("query").onclick = () => {
   worker?.postMessage({ type: "query", id: ++qid, sql: $("q").value });
 };
 $("q").onkeydown = (e) => (e.metaKey || e.ctrlKey) && e.key === "Enter" && $("query").click();
+
+// One nest is one chain: changing it starts again, with that chain's default RPCs.
+for (const [name, c] of Object.entries(CHAINS)) $("chain").append(new Option(c.label, name));
+$("chain").onchange = () => {
+  worker?.terminate();
+  worker = null;
+  state.contracts = [];
+  state.edited = {};
+  $("out").hidden = true;
+  $("rpc").value = chain().rpc;
+  $("second").value = chain().second;
+  status(`${chain().label}. Paste an address.`);
+};
+
+// Every view planned against the nest's declared tables, with no data: the engine's own errors, as the
+// visitor types, before anything is indexed or downloaded.
+let checkTimer = null;
+function checkViews() {
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(async () => {
+    if (!state.files["schema.json"]) return;
+    const nest = new w.Nest(async () => 0, async () => new Uint8Array(), "", JSON.stringify({ tables: {} }), state.files["schema.json"]);
+    for (const [p, sql] of Object.entries(state.files).filter(([p]) => p.startsWith("views/") && p.endsWith(".sql")).sort()) nest.addViews(sql);
+    const errors = [];
+    for (const v of nest.views()) {
+      try {
+        await nest.query(`SELECT * FROM "${v}" LIMIT 0`);
+      } catch (e) {
+        errors.push(String(e.message ?? e).split("\n")[0]);
+      }
+    }
+    const n = nest.views().length;
+    $("view-check").classList.toggle("err", errors.length > 0);
+    $("view-check").textContent = errors.length ? errors.join("\n") : n ? `${n} view${n === 1 ? "" : "s"}, all planned against this nest's tables.` : "No views declared yet: the starter is all comments.";
+  }, 400);
+}
