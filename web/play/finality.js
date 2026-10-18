@@ -4,9 +4,15 @@
 
 let id = 0;
 async function one(rpc, method, params) {
-  const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }) });
-  if (!r.ok) throw new Error(`${new URL(rpc).host}: HTTP ${r.status}`);
-  const j = await r.json();
+  let j = null;
+  for (let attempt = 0; !j; attempt++) {
+    const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }) }).catch((e) => e);
+    const busy = r instanceof Error || r.status === 429 || r.status === 403 || r.status >= 500;
+    if (!busy && !r.ok) throw new Error(`${new URL(rpc).host}: HTTP ${r.status}`);
+    j = busy ? null : await r.json().catch(() => null);
+    if (!j && attempt === 5) throw new Error(`${new URL(rpc).host}: ${r instanceof Error ? r.message : `HTTP ${r.status}`}, six times`);
+    if (!j) await new Promise((res) => setTimeout(res, 500 * 2 ** attempt));
+  }
   if (j.error) throw new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`);
   return j.result;
 }
@@ -49,13 +55,21 @@ function byBlock(logs, floor, ceiling) {
 /// The highest block past `floor` that `a` and `b` both call finalized, with the same hash, and for
 /// which `b` returns exactly `logs` (what `a` answered for `filter`), or `floor` and why not.
 export async function agreedCeiling({ a, b, logs, filter, floor }) {
+  const head = await agreedFinalized({ a, b, floor });
+  if (head.reason) return head;
+  const { ceiling } = head;
+  return agreedLogs({ b, logs, filter, floor, ceiling });
+}
+
+/// The lower of the two RPCs' finalized blocks, if both give it one hash, or `floor` and why not.
+export async function agreedFinalized({ a, b, floor }) {
   const [fa, fb] = await Promise.all([header(a, "finalized"), header(b, "finalized")]);
   if (!fa || !fb) return { ceiling: floor, reason: `${new URL(fa ? b : a).host} reports no finalized block` };
   const ceiling = Math.min(num(fa.number), num(fb.number));
   if (ceiling <= floor) return { ceiling: floor, reason: "nothing past the last seal is finalized on both" };
   const [ha, hb] = await Promise.all([header(a, ceiling), header(b, ceiling)]);
   if (!ha?.hash || ha.hash !== hb?.hash) return { ceiling: floor, reason: `the two RPCs give block ${ceiling} different hashes` };
-  return agreedLogs({ b, logs, filter, floor, ceiling });
+  return { ceiling, reason: null };
 }
 
 /// `ceiling`, or the block before the first in `(floor, ceiling]` for which `b` does not return
