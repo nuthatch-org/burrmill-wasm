@@ -1,8 +1,9 @@
 //! Burrmill compiled for a browser tab. `nest` is the work and runs on both targets; the rest is the
 //! JavaScript surface.
 
-mod civil;
+pub mod builder;
 pub mod chain;
+mod civil;
 pub mod nest;
 pub mod receipts;
 pub mod sealer;
@@ -246,6 +247,55 @@ mod bindings {
             .map(|l| serde_json::json!({ "address": l.address, "topics": l.topics(), "data": l.data.data }))
             .collect();
         serde_json::to_string(&logs).map_err(err)
+    }
+
+    /// The files `nuthatch init` writes for a resolved nest (RFC-0066), as a JSON object of path to text.
+    #[wasm_bindgen(js_name = scaffoldNest)]
+    pub fn scaffold_nest(input: &str) -> Result<String, JsError> {
+        let input = serde_json::from_str(input).map_err(err)?;
+        serde_json::to_string(&crate::builder::scaffold(input).map_err(err)?).map_err(err)
+    }
+
+    /// The NID and data identity a node gives `input`'s nest holding `files`, as JSON.
+    #[wasm_bindgen(js_name = nestIdentity)]
+    pub fn nest_identity(input: &str, files: &str) -> Result<String, JsError> {
+        let input = serde_json::from_str(input).map_err(err)?;
+        let files = serde_json::from_str(files).map_err(err)?;
+        let (nid, data_identity) = crate::builder::identity(input, files).map_err(err)?;
+        Ok(serde_json::json!({ "nid": nid, "data_identity": data_identity }).to_string())
+    }
+
+    /// `init`'s alias for a contract. `taken` is a JSON array of the aliases already chosen.
+    #[wasm_bindgen(js_name = pickAlias)]
+    pub fn pick_alias(
+        provided: Option<String>,
+        name: Option<String>,
+        taken: &str,
+    ) -> Result<String, JsError> {
+        let taken: Vec<String> = serde_json::from_str(taken).map_err(err)?;
+        crate::builder::alias(provided.as_deref(), name.as_deref(), &taken).map_err(err)
+    }
+
+    /// Where `init` looks for a proxy's implementation, in order, as JSON.
+    #[wasm_bindgen(js_name = proxySlots)]
+    pub fn proxy_slots() -> String {
+        use nuthatch_scaffold::resolve::*;
+        serde_json::json!({ "implementation": PROXY_IMPL_SLOTS, "beacon": PROXY_BEACON_SLOT, "selector": IMPLEMENTATION_SELECTOR }).to_string()
+    }
+
+    /// The address in a 32-byte word, as `init` reads a proxy slot; none when it is zero.
+    #[wasm_bindgen(js_name = implFromSlot)]
+    pub fn impl_from_slot(word: &str) -> Option<String> {
+        nuthatch_scaffold::resolve::impl_from_slot(word)
+    }
+
+    /// Sourcify v2's answer as `init` reads it: `{abi, name}` as JSON.
+    #[wasm_bindgen(js_name = parseSourcify)]
+    pub fn parse_sourcify(body: &str) -> Result<String, JsError> {
+        let body: serde_json::Value = serde_json::from_str(body).map_err(err)?;
+        let abi = nuthatch_scaffold::resolve::parse_sourcify(&body).map_err(err)?;
+        let name = nuthatch_scaffold::resolve::sourcify_contract_name(&body);
+        Ok(serde_json::json!({ "abi": abi, "name": name }).to_string())
     }
 
     /// A panic reaches the console with its message, not as a bare `unreachable`.
