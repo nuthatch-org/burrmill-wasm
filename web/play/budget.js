@@ -1,9 +1,11 @@
 // The engine's working-memory budget on this device. Over it a statement is refused, where unbounded
-// it grows the tab until the browser kills it: a phone at around a gigabyte, anything at wasm32's 4 GiB.
+// it grows the tab until the browser kills it: a phone at around a gigabyte. Elsewhere it is nuthatch's
+// 2 GB per active-chain cursor, which a tab following a chain is.
 // Measured 2026-10-18: the heaviest Lodestar view peaks near 2 GiB unbounded and is refused at 600 MiB
-// with the module at 836 MiB; a light view runs in the same time either way.
+// with the module at 836 MiB; a light view runs in the same time either way. Under 2 GiB the same view
+// completes with the module at 1,956 MiB.
 export const SMALL_MIB = 600;
-export const LARGE_MIB = 3072;
+export const LARGE_MIB = 2048;
 
 export function budgetMiB() {
   const nav = globalThis.navigator ?? {};
