@@ -3,12 +3,14 @@
 //   RPC=<url> node bench/seal-gate.mjs <native manifest.json> <nest repo dir> <from> <to> [seal span]
 // With SEED=<dir> (a saved `_seed/seed.json` and its tails) it resumes there instead, as the tab does, and
 // a `seed.json` beside the manifest adds that later snapshot's tails to what counts as native.
+// With HELIOS=<@a16z/helios package dir> the range must also lie below the light client's finalized
+// block, on headers that hash down to it, as the tab's S5 seal requires.
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
 
 const require = createRequire(import.meta.url);
-const { Decoder, Sealer } = require("../pkg/node/burrmill_wasm.js");
+const { Decoder, Sealer, verifyChain } = require("../pkg/node/burrmill_wasm.js");
 const { fetchTail } = await import("../web/play/tail.js");
 
 const [manifestArg, repoArg, fromArg, toArg, spanArg] = process.argv.slice(2);
@@ -36,6 +38,15 @@ const tail = await fetchTail({ rpc, decoder, from, to, log: (m) => console.log(m
 const sealer = new Sealer(from - 1, span);
 if (seed) for (const [t, s] of Object.entries(seed.tails)) sealer.addTail(t, s.from_block, s.to_block, fs.readFileSync(path.join(seedDir, `${t}.tail`)), s.hash);
 const added = sealer.push(JSON.stringify(tail.rows));
+if (process.env.HELIOS) {
+  const { verifiedFinalized, verifiedCeiling } = await import("../web/play/verified.js");
+  const { createHeliosProvider } = await import(`${path.resolve(process.env.HELIOS)}/dist/lib.mjs`);
+  const shipped = { root: (await (await fetch("https://lodestar-mainnet.chainsafe.io/eth/v1/beacon/headers/finalized")).json()).data.root, at: Date.now() };
+  const top = await verifiedFinalized({ create: createHeliosProvider, chainId: 1, rpc, shipped, load: async () => null, save: async () => {} });
+  const v = await verifiedCeiling({ rpc, sources: [rpc, process.env.SECOND ?? rpc], top, floor: from - 1, logs: tail.raw, verifyChain });
+  console.log(`light client finalized ${top.number}; ${v.headers} headers hash down to it; ceiling ${v.ceiling}${v.reason ? `: ${v.reason}` : ""}`);
+  if (v.reason || v.ceiling < to) { console.log("RESULT: FAIL"); process.exit(1); }
+}
 const sealed = JSON.parse(sealer.seal(to));
 const ms = Math.round(performance.now() - t0);
 

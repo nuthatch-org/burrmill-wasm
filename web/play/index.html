@@ -85,7 +85,7 @@
 </head>
 <body>
 <main>
-  <h1>A nest in your browser</h1>
+  <h1>An indexer in your tab</h1>
   <p class="lede">SQL over a published nuthatch nest, answered in this tab. Burrmill, nuthatch's query engine, is compiled to WebAssembly and reads the nest's sealed segments from the public mirror, each checked against the content address it is stored under. No server runs your query.</p>
   <div class="bar">
     <select id="nest" aria-label="nest"></select>
@@ -94,6 +94,7 @@
   <div class="tail-bar">
     <span id="tail-note"></span>
     <button id="tail-refresh" class="quiet" title="Fetch the blocks past the mirror again">Refresh tail</button>
+    <button id="tail-receipts" class="quiet" title="Check the newest finalized tail blocks against their receipts, about 1 MB a block">Check 20 blocks' receipts (~20 MB)</button>
     <input id="rpc" type="url" spellcheck="false" placeholder="your own RPC URL (kept in this browser)" aria-label="RPC URL for the live tail">
   </div>
   <div class="layout">

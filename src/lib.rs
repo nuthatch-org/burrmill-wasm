@@ -2,7 +2,9 @@
 //! JavaScript surface.
 
 mod civil;
+pub mod chain;
 pub mod nest;
+pub mod receipts;
 pub mod sealer;
 pub mod tail;
 
@@ -212,9 +214,38 @@ mod bindings {
             serde_json::to_string(&self.last).map_err(err)
         }
 
+        /// How many segments `seal(ceiling)` would write, without writing them: whether there is
+        /// anything to verify the chain for.
+        pub fn reach(&self, ceiling: f64) -> Result<usize, JsError> {
+            Ok(self.sealer.clone().seal(ceiling as u64).map_err(err)?.len())
+        }
+
         pub fn bytes(&self, i: usize) -> Option<Vec<u8>> {
             self.last.get(i).map(|s| s.bytes.clone())
         }
+    }
+
+    /// `headers` (a JSON array as `eth_getBlockByNumber` answers them) linked down from `top`, a block
+    /// hash the light client verified. Answers each block's hash by number, as JSON.
+    #[wasm_bindgen(js_name = verifyChain)]
+    pub fn verify_chain(headers: &str, top: &str) -> Result<String, JsError> {
+        let headers: Vec<serde_json::Value> = serde_json::from_str(headers).map_err(err)?;
+        let top = top.parse().map_err(err)?;
+        let chain = crate::chain::verify(&headers, top).map_err(err)?;
+        serde_json::to_string(&chain).map_err(err)
+    }
+
+    /// A block's receipts (a JSON array as `eth_getBlockReceipts` answers them) checked against `root`,
+    /// a verified header's `receiptsRoot`. Answers all the block's logs in order, as JSON.
+    #[wasm_bindgen(js_name = verifyReceipts)]
+    pub fn verify_receipts(receipts: &str, root: &str) -> Result<String, JsError> {
+        let receipts: Vec<serde_json::Value> = serde_json::from_str(receipts).map_err(err)?;
+        let logs = crate::receipts::verify(&receipts, root.parse().map_err(err)?).map_err(err)?;
+        let logs: Vec<_> = logs
+            .iter()
+            .map(|l| serde_json::json!({ "address": l.address, "topics": l.topics(), "data": l.data.data }))
+            .collect();
+        serde_json::to_string(&logs).map_err(err)
     }
 
     /// A panic reaches the console with its message, not as a bare `unreachable`.

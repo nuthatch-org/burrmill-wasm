@@ -1,10 +1,11 @@
 // The engine and its segment store, off the page's thread: a heavy view no longer freezes the tab,
 // and terminating this worker is how a query is cancelled. Each segment is fetched whole, checked
 // against the SHA-256 its key names, and kept in the origin-private file system.
-import init, { Nest, Decoder, Sealer, wasmMemory } from "./pkg/burrmill_wasm.js";
+import init, { Nest, Decoder, Sealer, wasmMemory, verifyChain, verifyReceipts } from "./pkg/burrmill_wasm.js";
 import { prepare } from "./chart.js";
 import { fetchTail, headBlock, MARGIN } from "./tail.js";
-import { agreedCeiling } from "./finality.js";
+import { agreedLogs } from "./finality.js";
+import { verifiedFinalized, verifiedCeiling, checkReceipts } from "./verified.js";
 
 const CONCURRENCY = 16;
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -132,6 +133,7 @@ async function fetchAndBind(rpc) {
   if (head - from + 1 > MAX_TAIL) throw new Error(`the mirror ends ${(head - cut).toLocaleString()} blocks behind the head, more than a tab fetches (${MAX_TAIL.toLocaleString()})`);
   const got = await fetchTail({ rpc, decoder, from, to: head });
   const rows = engine.setTail(JSON.stringify(got.rows));
+  lastTail = { rpc, raw: got.raw };
   return { from: cut + 1, to: head, rows, logs: got.logs, undecoded: got.undecoded, ms: performance.now() - t, host: new URL(rpc).host };
 }
 
@@ -224,8 +226,42 @@ async function startSealing() {
   return check;
 }
 
-/// Fetch past this tab's last seal from `rpc`, seal what `rpc` and `second` agree is final, and bind
-/// the rest as the unsealed tail. Segments sealed here are marked as against unauthenticated finality.
+// Helios is 4.5 MB, so it loads on the first seal, not with the page. Its linear memory is caught as it
+// is instantiated, for the page to say what the light client holds beside the engine.
+let helios = null;
+async function lightClient() {
+  if (helios) return helios;
+  const { createHeliosProvider } = await import("./helios/lib.mjs");
+  const shipped = await (await fetch("./checkpoint.json", { cache: "no-cache" })).json();
+  const memories = [];
+  const create = async (...args) => {
+    const kept = { instantiate: WebAssembly.instantiate, instantiateStreaming: WebAssembly.instantiateStreaming };
+    for (const [k, f] of Object.entries(kept)) {
+      WebAssembly[k] = async (...a) => {
+        const r = await f.apply(WebAssembly, a);
+        const m = (r.instance ?? r).exports?.memory;
+        if (m instanceof WebAssembly.Memory) memories.push(m);
+        return r;
+      };
+    }
+    try { return await createHeliosProvider(...args); }
+    finally { Object.assign(WebAssembly, kept); }
+  };
+  helios = { create, shipped, memories };
+  return helios;
+}
+const checkpointFile = async (create) => (await navigator.storage.getDirectory()).getFileHandle(`helios-${chainId}.json`, { create });
+async function loadCheckpoint() {
+  try { return JSON.parse(await (await (await checkpointFile(false)).getFile()).text()); }
+  catch { return null; }
+}
+async function saveCheckpoint(c) {
+  try { const w = await (await checkpointFile(true)).createWritable(); await w.write(JSON.stringify(c)); await w.close(); }
+  catch { /* a refused store only costs a longer sync next time */ }
+}
+
+/// Fetch past this tab's last seal from `rpc`, seal what the light client verified is final and
+/// `second` returns the same logs for, and bind the rest as the unsealed tail.
 async function seal({ rpc, second }) {
   if (!decoder) throw new Error(`no live tail: ${refused}`);
   const t = performance.now();
@@ -241,9 +277,18 @@ async function seal({ rpc, second }) {
   const head = await headBlock(rpc);
   if (head - floor > MAX_TAIL) throw new Error(`this tab's last seal is ${(head - floor).toLocaleString()} blocks behind the head, more than a tab fetches (${MAX_TAIL.toLocaleString()})`);
   const got = await fetchTail({ rpc, decoder, from: floor + 1, to: head });
-  const agreed = await agreedCeiling({ a: rpc, b: second, logs: got.raw, filter: JSON.parse(decoder.filter()), floor });
+  lastTail = { rpc, raw: got.raw };
   sealer.clear();
   sealer.push(JSON.stringify(got.rows));
+  const lc = await lightClient();
+  const top = await verifiedFinalized({ create: lc.create, chainId, rpc, shipped: lc.shipped, load: loadCheckpoint, save: saveCheckpoint });
+  let agreed = { ceiling: floor, reason: null };
+  // The headers cost about 15 KB a block, so they are fetched only when a seal would follow.
+  if (sealer.reach(Math.min(top.number, head)) > 0) {
+    const v = await verifiedCeiling({ rpc, sources: [rpc, second], top, floor, logs: got.raw, verifyChain });
+    const l = await agreedLogs({ b: second, logs: got.raw, filter: JSON.parse(decoder.filter()), floor, ceiling: v.ceiling });
+    agreed = { ceiling: l.ceiling, reason: l.reason ?? v.reason };
+  }
   const out = JSON.parse(sealer.seal(agreed.ceiling));
   for (const [i, s] of out.entries()) {
     const bytes = sealer.bytes(i);
@@ -260,7 +305,25 @@ async function seal({ rpc, second }) {
     mirror_through: mirrorThrough, sealed_through: sealer.watermark(), sealed_now: out.filter((s) => !s.provisional).length, sealed_here: sealing.finals.length,
     held: agreed.reason, to: head, rows, logs: got.logs, ms: performance.now() - t,
     host: new URL(rpc).host, second: new URL(second).host, check,
+    verified: { number: top.number, consensus: top.consensus, sync_ms: top.sync_ms, mem_mib: lc.memories.reduce((a, m) => a + m.buffer.byteLength, 0) / 2 ** 20 | 0 },
+    mem_mib: (wasmMemory().buffer.byteLength / 2 ** 20) | 0,
   };
+}
+
+/// The tail's logs as last fetched, for checking against receipts on request.
+let lastTail = null;
+
+/// The newest `count` blocks of the tail that have rows and are finalized, each checked against its
+/// receipts (RFC-0065 §6): about 1 MB a block, which is why the page asks first.
+async function receipts({ second, count }) {
+  if (!lastTail) throw new Error("no live tail to check yet");
+  const { rpc, raw } = lastTail;
+  const lc = await lightClient();
+  const top = await verifiedFinalized({ create: lc.create, chainId, rpc, shipped: lc.shipped, load: loadCheckpoint, save: saveCheckpoint });
+  const withRows = [...new Set(raw.map((l) => Number(BigInt(l.blockNumber))))].filter((n) => n <= top.number).sort((a, b) => b - a);
+  const t = performance.now();
+  const out = await checkReceipts({ rpc, sources: [rpc, second], top, blocks: withRows.slice(0, count), logs: raw, filter: JSON.parse(decoder.filter()), verifyChain, verifyReceipts });
+  return { ...out, finalized: top.number, of: withRows.length, ms: performance.now() - t, host: new URL(rpc).host };
 }
 
 async function query({ sql }) {
@@ -292,7 +355,7 @@ async function clearCache() {
 // The browser's own record of what this worker fetched, independent of the counts above.
 const resources = () => performance.getEntriesByType("resource").map((e) => ({ url: e.name, bytes: e.transferSize, ms: Math.round(e.duration) }));
 
-const handlers = { open, tail, seal: (a) => seal(a).catch((e) => { engine.setTail("{}"); throw e; }), query, clearCache, resources };
+const handlers = { open, tail, receipts, seal: (a) => seal(a).catch((e) => { engine.setTail("{}"); throw e; }), query, clearCache, resources };
 self.onmessage = async ({ data: { id, op, args } }) => {
   try { self.postMessage({ id, ok: await handlers[op](args) }); }
   catch (e) { self.postMessage({ id, err: String(e?.message ?? e) }); }

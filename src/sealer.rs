@@ -27,12 +27,14 @@ pub struct Sealed {
 
 /// A table's provisional segment, kept as its bytes: the nest folds by reading the file back, so the
 /// tab does too.
+#[derive(Clone)]
 struct Tail {
     from_block: u64,
     to_block: u64,
     bytes: Vec<u8>,
 }
 
+#[derive(Clone)]
 pub struct Sealer {
     seal_span: u64,
     floor: usize,

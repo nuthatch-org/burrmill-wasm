@@ -88,13 +88,16 @@ async function openNest(i, then) {
 // that can say so fetches it, since its rows are whatever that RPC answered.
 const RPCS = { 1: "https://ethereum-rpc.publicnode.com", 42161: "https://arbitrum-one-rpc.publicnode.com" };
 const ownRpc = (chain) => { try { return localStorage.getItem(`play.rpc.${chain}`) || null; } catch { return null; } };
-// RFC-0065 S4: the second, independent RPC that must agree a block is final before the tab seals it.
+// RFC-0065 S4: the second, independent RPC whose logs must match before the tab seals them.
 const SECOND = { 1: "https://rpc.flashbots.net" };
 function sealedHere(s) {
   const parts = [`Sealed through block ${s.mirror_through.toLocaleString()} on the mirror, with the nest's provisional tails.`];
+  const v = s.verified;
+  const fin = `block ${v.number.toLocaleString()}, the finalized block the light client verified through the beacon chain's sync committee`;
   parts.push(s.sealed_here
-    ? `This tab sealed ${s.sealed_here} more segments through block ${s.sealed_through.toLocaleString()}, against finality ${s.host} and ${s.second} agreed on, which is not authenticated.`
-    : `Nothing past it is both final on ${s.host} and ${s.second} and at a cut yet, so this tab has sealed nothing.`);
+    ? `This tab sealed ${s.sealed_here} more segments through block ${s.sealed_through.toLocaleString()}, below ${fin}, on headers that hash down to it. Their logs are what ${s.host} and ${s.second} both returned, which is agreement, not proof.`
+    : `Nothing past it reaches a cut yet below ${fin}, so this tab has sealed nothing.`);
+  parts.push(`The light client holds ${v.mem_mib} MiB beside the engine's ${s.mem_mib} MiB.`);
   if (s.held) parts.push(`Held back: ${s.held}.`);
   if (s.check?.agreed || s.check?.differed) {
     parts.push(s.check.differed
@@ -116,6 +119,11 @@ async function refreshTail() {
   const second = SECOND[chain];
   let why = "";
   if (second && new URL(second).host !== new URL(rpc).host) {
+    try {
+      // The seal can wait a minute on header fetches; the rows are shown before it.
+      const t = await call("tail", { rpc });
+      box.textContent = `${sealed} Live tail to block ${t.to.toLocaleString()} from ${t.host}: ${t.rows.toLocaleString()} rows, not sealed and not verified. Checking what this tab can seal…`;
+    } catch { /* the seal below fetches the tail again, and says why if it cannot */ }
     try {
       const s = await call("seal", { rpc, second });
       box.textContent = [sealedHere(s), `Live tail to block ${s.to.toLocaleString()}: ${s.rows.toLocaleString()} rows past it, not sealed and not verified.`].join(" ");
@@ -273,6 +281,22 @@ $("run").addEventListener("click", run);
 $("cancel").addEventListener("click", () => { startWorker(); status("cancelled; reopening…"); openNest(+$("nest").value); });
 $("csv").addEventListener("click", csv);
 $("sql").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run(); });
+$("tail-receipts")?.addEventListener("click", async () => {
+  const box = $("tail-note"), was = box.textContent, chain = opened?.tail?.chain_id;
+  const second = SECOND[chain];
+  if (!second) { box.textContent = `${was} No second RPC is known for chain ${chain} to share the headers with.`; return; }
+  box.textContent = `${was} Checking receipts…`;
+  try {
+    const r = await call("receipts", { second, count: 20 });
+    const head = r.checked
+      ? `${r.complete} of the ${r.checked} newest finalized tail blocks with rows are complete: their receipts hash to headers the light client verified, and the RPC returned every log in them that this nest indexes, unaltered, with none added.`
+      : "No block of the tail with rows is finalized yet.";
+    const bad = r.differ.map((d) => `Block ${d.block.toLocaleString()}: ${d.reason}.`).join(" ");
+    box.textContent = [was, head, bad, `${(r.bytes / 1e6).toFixed(1)} MB of receipts in ${duration(r.ms)}; ${(r.of - r.checked).toLocaleString()} more finalized blocks with rows are not checked.`].filter(Boolean).join(" ");
+  } catch (e) {
+    box.textContent = `${was} Receipts not checked: ${e?.message ?? e}.`;
+  }
+});
 $("tail-refresh")?.addEventListener("click", async () => {
   if (running) return;
   await refreshTail();
