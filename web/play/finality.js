@@ -20,7 +20,7 @@ async function one(rpc, method, params) {
 const hex = (n) => `0x${n.toString(16)}`;
 const num = (h) => Number(BigInt(h));
 const header = (rpc, tag) => one(rpc, "eth_getBlockByNumber", [typeof tag === "number" ? hex(tag) : tag, false]);
-const refusedRange = (e) => /range|limit|too many|exceed|max|response size|10000|query returned/i.test(String(e?.message ?? e));
+const refusedRange = (e) => /range|limit|too many|exceed|max|response size|10000|query returned|timeout|timed out/i.test(String(e?.message ?? e));
 
 async function getLogs(rpc, filter, from, to) {
   const out = [];

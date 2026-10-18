@@ -1,10 +1,13 @@
 // The builder's indexer (RFC-0066 S2): backfill and seal a nest the page scaffolded, open it as the
 // playground opens a published one, keep the unsealed blocks to the head on top, and answer SQL.
 import init, * as w from "./pkg/burrmill_wasm.js";
-import { backfill, openable, headRows, storeFns } from "./index-it.js";
+import { backfill, advance, openable, headRows, storeFns } from "./index-it.js";
 
 const ready = init();
 const FOLLOW_MS = 12000;
+// Finality moves an epoch at a time, about every 6.4 minutes; asking each minute is plenty.
+const SEAL_EVERY = 5;
+let cycle = 0;
 let indexed = null;
 let nest = null;
 let views = [];
@@ -18,6 +21,10 @@ function open() {
 
 async function follow() {
   try {
+    if (++cycle % SEAL_EVERY === 0 && (await advance(indexed, { rpc: indexed.rpc, second: indexed.second }))) {
+      open();
+      postMessage({ type: "sealed", finalized: indexed.sealedTo, segments: Object.values(indexed.manifest.tables).flat().length, tails: Object.keys(indexed.provisional).length });
+    }
     const { rows, to } = await headRows({ decoder: indexed.decoder, rpc: indexed.rpc, after: indexed.sealer.watermark() });
     indexed.rows = rows;
     const kept = nest.setTail(JSON.stringify(rows));
@@ -40,7 +47,7 @@ onmessage = async ({ data }) => {
         w, files: data.files, from: data.from, rpc: data.rpc, second: data.second, store,
         progress: (p) => postMessage({ type: "progress", ...p }),
       });
-      indexed = { ...done, store, files: data.files, rpc: data.rpc };
+      indexed = Object.assign(done, { files: data.files, rpc: data.rpc, second: data.second });
       views = sortedViews(data.files);
       open();
       postMessage({

@@ -28,7 +28,7 @@ async function one(rpc, method, params) {
 }
 export const headBlock = async (rpc) => Number(BigInt(await one(rpc, "eth_blockNumber", [])));
 const hex = (n) => `0x${n.toString(16)}`;
-const refusedRange = (e) => /range|limit|too many|exceed|max|response size|10000|query returned/i.test(String(e?.message ?? e));
+const refusedRange = (e) => /range|limit|too many|exceed|max|response size|10000|query returned|timeout|timed out/i.test(String(e?.message ?? e));
 
 /// Each block's timestamp from its header, a handful at a time.
 async function headerTimes(rpc, blocks) {
