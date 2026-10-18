@@ -6,6 +6,7 @@ import { prepare } from "./chart.js";
 import { fetchTail, headBlock, MARGIN } from "./tail.js";
 import { agreedLogs } from "./finality.js";
 import { verifiedFinalized, verifiedCeiling, checkReceipts } from "./verified.js";
+import { budgetMiB } from "./budget.js";
 
 const CONCURRENCY = 16;
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -158,7 +159,7 @@ function bind() {
     for (const s of Object.values(sealing.tails)) add(s);
   }
   engine?.free();
-  engine = new Nest(cur.store.size, cur.store.read, "", JSON.stringify(m), cur.schemaText);
+  engine = new Nest(cur.store.size, cur.store.read, "", JSON.stringify(m), cur.schemaText, budgetMiB());
   for (const text of cur.views) engine.addViews(text);
 }
 

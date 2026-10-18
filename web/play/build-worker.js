@@ -2,6 +2,7 @@
 // playground opens a published one, keep the unsealed blocks to the head on top, and answer SQL.
 import init, * as w from "./pkg/burrmill_wasm.js";
 import { backfill, advance, openable, headRows, storeFns } from "./index-it.js";
+import { budgetMiB } from "./budget.js";
 
 const ready = init();
 const FOLLOW_MS = 12000;
@@ -14,7 +15,7 @@ let views = [];
 
 function open() {
   const { size, read } = storeFns(indexed.store);
-  nest = new w.Nest(size, read, "", openable(indexed), indexed.files["schema.json"]);
+  nest = new w.Nest(size, read, "", openable(indexed), indexed.files["schema.json"], budgetMiB());
   for (const [, sql] of views) nest.addViews(sql);
   if (indexed.rows) nest.setTail(JSON.stringify(indexed.rows));
 }

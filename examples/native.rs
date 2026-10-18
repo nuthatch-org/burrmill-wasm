@@ -21,7 +21,7 @@ fn main() {
     files.sort();
     let store = Arc::new(LocalFileSystem::new_with_prefix(&dir).unwrap());
     let open = || {
-        let mut n = Nest::open(store.clone(), "", &manifest, schema.as_deref()).unwrap();
+        let mut n = Nest::open(store.clone(), "", &manifest, schema.as_deref(), None).unwrap();
         for f in &files {
             n.add_views(&std::fs::read_to_string(f).unwrap());
         }

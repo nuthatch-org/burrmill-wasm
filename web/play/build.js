@@ -4,6 +4,7 @@
 import init, * as w from "./pkg/burrmill_wasm.js";
 import { chainId, resolveContract } from "./resolve.js";
 import { zip } from "./zip.js";
+import { explainRefusal } from "./budget.js";
 
 const $ = (id) => document.getElementById(id);
 const state = { contracts: [], files: {}, edited: {}, view: "views/10-example.sql", id: null };
@@ -217,7 +218,7 @@ function indexIt() {
     } else if (m.type === "rows") {
       $("qstatus").textContent = `${table(m.text)} rows in ${m.ms} ms`;
     } else if (m.type === "error") {
-      if (m.id) $("qstatus").textContent = m.error;
+      if (m.id) $("qstatus").textContent = explainRefusal(m.error);
       else {
         $("index").disabled = false;
         $("progress").textContent = `Stopped: ${m.error}`;
