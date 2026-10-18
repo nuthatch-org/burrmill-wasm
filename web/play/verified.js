@@ -41,24 +41,34 @@ export async function verifiedFinalized({ create, chainId, rpc, shipped, load, s
 }
 
 let id = 0;
-async function header(rpc, n) {
-  const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "eth_getBlockByNumber", params: [`0x${n.toString(16)}`, false] }) });
-  if (!r.ok) throw new Error(`${new URL(rpc).host}: HTTP ${r.status}`);
-  const j = await r.json();
-  if (!j.result) throw new Error(`${new URL(rpc).host} has no header for block ${n}`);
-  delete j.result.transactions;
-  return j.result;
+/// Block `n`'s header from the first of `sources` (starting at `n`'s turn) that is not throttling.
+async function header(sources, n) {
+  for (let wait = 500; ; wait *= 2) {
+    for (let k = 0; k < sources.length; k++) {
+      const rpc = sources[(n + k) % sources.length];
+      const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "eth_getBlockByNumber", params: [`0x${n.toString(16)}`, false] }) });
+      if (r.status === 429) continue;
+      if (!r.ok) throw new Error(`${new URL(rpc).host}: HTTP ${r.status}`);
+      const j = await r.json();
+      if (!j.result) throw new Error(`${new URL(rpc).host} has no header for block ${n}`);
+      delete j.result.transactions;
+      return j.result;
+    }
+    // A public RPC throttles a few thousand headers in a row and answers again after a pause.
+    if (wait > 16000) throw new Error(`every RPC is throttling; block ${n}'s header was refused for a minute`);
+    await new Promise((res) => setTimeout(res, wait));
+  }
 }
 
-/// `top`'s ceiling once the headers in `(floor, top.number]` from `rpc` hash down from `top.hash`
-/// (`verifyChain` is the wasm check), lowered to the block before the first of `logs` whose block hash
-/// is not on that chain.
-export async function verifiedCeiling({ rpc, top, floor, logs, verifyChain, concurrency = 10 }) {
+/// `top`'s ceiling once the headers in `(floor, top.number]` hash down from `top.hash` (`verifyChain` is
+/// the wasm check), lowered to the block before the first of `rpc`'s `logs` whose block hash is not on
+/// that chain. The headers are shared across `sources`, any RPCs at all, since none of them is trusted.
+export async function verifiedCeiling({ rpc, sources = [rpc], top, floor, logs, verifyChain, concurrency = 10 }) {
   if (top.number <= floor) return { ceiling: floor, reason: "nothing past the last seal is finalized" };
   const blocks = Array.from({ length: top.number - floor }, (_, i) => floor + 1 + i);
   const headers = [];
   for (let i = 0; i < blocks.length; i += concurrency) {
-    headers.push(...(await Promise.all(blocks.slice(i, i + concurrency).map((n) => header(rpc, n)))));
+    headers.push(...(await Promise.all(blocks.slice(i, i + concurrency).map((n) => header(sources, n)))));
   }
   const chain = JSON.parse(verifyChain(JSON.stringify(headers), top.hash));
   for (const l of [...logs].sort((x, y) => Number(BigInt(x.blockNumber)) - Number(BigInt(y.blockNumber)))) {

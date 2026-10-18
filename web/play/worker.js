@@ -230,19 +230,23 @@ async function startSealing() {
 let helios = null;
 async function lightClient() {
   if (helios) return helios;
+  const { createHeliosProvider } = await import("./helios/lib.mjs");
+  const shipped = await (await fetch("./checkpoint.json", { cache: "no-cache" })).json();
   const memories = [];
-  const instantiate = WebAssembly.instantiate;
-  WebAssembly.instantiate = async (...a) => {
-    const r = await instantiate.apply(WebAssembly, a);
-    const m = (r.instance ?? r).exports?.memory;
-    if (m instanceof WebAssembly.Memory) memories.push(m);
-    return r;
+  const create = async (...args) => {
+    const kept = { instantiate: WebAssembly.instantiate, instantiateStreaming: WebAssembly.instantiateStreaming };
+    for (const [k, f] of Object.entries(kept)) {
+      WebAssembly[k] = async (...a) => {
+        const r = await f.apply(WebAssembly, a);
+        const m = (r.instance ?? r).exports?.memory;
+        if (m instanceof WebAssembly.Memory) memories.push(m);
+        return r;
+      };
+    }
+    try { return await createHeliosProvider(...args); }
+    finally { Object.assign(WebAssembly, kept); }
   };
-  try {
-    const { createHeliosProvider } = await import("./helios/lib.mjs");
-    const shipped = await (await fetch("./checkpoint.json", { cache: "no-cache" })).json();
-    helios = { create: createHeliosProvider, shipped, memories };
-  } finally { WebAssembly.instantiate = instantiate; }
+  helios = { create, shipped, memories };
   return helios;
 }
 const checkpointFile = async (create) => (await navigator.storage.getDirectory()).getFileHandle(`helios-${chainId}.json`, { create });
@@ -279,7 +283,7 @@ async function seal({ rpc, second }) {
   let agreed = { ceiling: floor, reason: null };
   // The headers cost about 15 KB a block, so they are fetched only when a seal would follow.
   if (sealer.reach(Math.min(top.number, head)) > 0) {
-    const v = await verifiedCeiling({ rpc, top, floor, logs: got.raw, verifyChain });
+    const v = await verifiedCeiling({ rpc, sources: [rpc, second], top, floor, logs: got.raw, verifyChain });
     const l = await agreedLogs({ b: second, logs: got.raw, filter: JSON.parse(decoder.filter()), floor, ceiling: v.ceiling });
     agreed = { ceiling: l.ceiling, reason: l.reason ?? v.reason };
   }
