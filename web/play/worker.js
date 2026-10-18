@@ -84,17 +84,26 @@ const MAX_TAIL = 50_000;
 
 async function open({ base, views, decoder: decoderUrl }) {
   await ready;
-  const [manifestText, schemaText, decoderJson] = await Promise.all([
+  const [manifestText, schemaText, decoderJson, seed] = await Promise.all([
     fetch(`${base}/manifest.json`, { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`manifest: HTTP ${r.status}`); return r.text(); }),
     fetch(`${base}/schema.json`).then((r) => (r.ok ? r.text() : undefined)),
     decoderUrl ? fetch(decoderUrl).then((r) => (r.ok ? r.json() : null)) : null,
+    fetch(`${base}/_seed/seed.json`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ]);
   decoder?.free();
   decoder = null;
   refused = decoderJson ? null : "this nest has no published config";
   chainId = null;
   sealing = null;
-  cur = { base, views, manifestText, schemaText, store: segmentStore(base) };
+  cur = { base, views, manifestText, schemaText, store: segmentStore(base), seed: null };
+  // A nest whose tables are all under the seal floor has every row in the seed's tails and nothing
+  // in the catalogue, so the tails are part of what the mirror publishes, not only a place to resume.
+  if (seed && seed.catalogue_sha256 === (await sha(manifestText))) {
+    try {
+      for (const [t, s] of Object.entries(seed.tails)) await bytesOf(s.hash, `${base}/_seed/${t}.tail`);
+      cur.seed = seed;
+    } catch (e) { console.warn("seed tails unavailable:", e); }
+  }
   bind();
   if (decoderJson) {
     try {
@@ -109,8 +118,8 @@ async function open({ base, views, decoder: decoderUrl }) {
     views: engine.views(),
     tables: engine.tables().length,
     segments: segments.length,
-    rows: segments.reduce((s, x) => s + (x.rows ?? 0), 0),
-    sealed_through: Math.max(0, ...Object.values(covered)),
+    rows: segments.reduce((s, x) => s + (x.rows ?? 0), 0) + Object.values(cur.seed?.tails ?? {}).reduce((s, x) => s + (x.rows ?? 0), 0),
+    sealed_through: Math.max(0, cur.seed?.complete_through ?? 0, ...Object.values(covered)),
     tail: decoder ? { chain_id: chainId } : { refused },
   };
 }
@@ -128,7 +137,7 @@ async function fetchAndBind(rpc) {
   const reply = await (await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 0, method: "eth_chainId", params: [] }) })).json();
   const served = Number(BigInt(reply.result));
   if (chainId && served !== chainId) throw new Error(`that RPC serves chain ${served}; this nest is on chain ${chainId}`);
-  const cut = Math.max(0, ...Object.values(JSON.parse(engine.covered())));
+  const cut = Math.max(0, cur.seed?.complete_through ?? 0, ...Object.values(JSON.parse(engine.covered())));
   const head = await headBlock(rpc);
   const from = cut - MARGIN + 1;
   if (head - from + 1 > MAX_TAIL) throw new Error(`the mirror ends ${(head - cut).toLocaleString()} blocks behind the head, more than a tab fetches (${MAX_TAIL.toLocaleString()})`);
@@ -153,8 +162,9 @@ const stateName = () => `${cur.base.split("/").pop()}.json`;
 /// The engine over the mirror's catalogue, the seed snapshot's tails and every segment sealed here.
 function bind() {
   const m = JSON.parse(cur.manifestText);
+  const add = (s) => (m.tables[s.table] ??= []).push({ hash: s.hash, from_block: s.from_block, to_block: s.to_block, rows: s.rows });
+  if (!sealing && cur.seed) for (const [t, s] of Object.entries(cur.seed.tails)) add({ ...s, table: t });
   if (sealing) {
-    const add = (s) => (m.tables[s.table] ??= []).push({ hash: s.hash, from_block: s.from_block, to_block: s.to_block, rows: s.rows });
     for (const s of sealing.finals) add(s);
     for (const s of Object.values(sealing.tails)) add(s);
   }
