@@ -23,10 +23,13 @@ const c = await resolveContract({ rpc, id, address: process.env.ADDRESS, start: 
 const { implementation, name: _, ...contract } = c;
 const input = JSON.stringify({ name, chain, chain_id: id, rpc_urls: [rpc], contracts: [contract] });
 const files = JSON.parse(w.scaffoldNest(input));
-const root = mkdtempSync(join(tmpdir(), "index-gate-"));
-for (const [p, t] of Object.entries(files)) {
-  mkdirSync(dirname(join(root, name, p)), { recursive: true });
-  writeFileSync(join(root, name, p), t);
+// NEST_DIR reuses a node's directory from an earlier run of this gate, which resumes where it stopped.
+const root = process.env.NEST_DIR ? dirname(process.env.NEST_DIR) : mkdtempSync(join(tmpdir(), "index-gate-"));
+if (!process.env.NEST_DIR) {
+  for (const [p, t] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, name, p)), { recursive: true });
+    writeFileSync(join(root, name, p), t);
+  }
 }
 console.log(`${c.alias} from block ${c.start_block}; the nest is in ${root}/${name}`);
 
