@@ -281,6 +281,22 @@ $("run").addEventListener("click", run);
 $("cancel").addEventListener("click", () => { startWorker(); status("cancelled; reopening…"); openNest(+$("nest").value); });
 $("csv").addEventListener("click", csv);
 $("sql").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run(); });
+$("tail-receipts")?.addEventListener("click", async () => {
+  const box = $("tail-note"), was = box.textContent, chain = opened?.tail?.chain_id;
+  const second = SECOND[chain];
+  if (!second) { box.textContent = `${was} No second RPC is known for chain ${chain} to share the headers with.`; return; }
+  box.textContent = `${was} Checking receipts…`;
+  try {
+    const r = await call("receipts", { second, count: 20 });
+    const head = r.checked
+      ? `${r.complete} of the ${r.checked} newest finalized tail blocks with rows are complete: their receipts hash to headers the light client verified, and the RPC returned every log in them that this nest indexes, unaltered, with none added.`
+      : "No block of the tail with rows is finalized yet.";
+    const bad = r.differ.map((d) => `Block ${d.block.toLocaleString()}: ${d.reason}.`).join(" ");
+    box.textContent = `${was} ${head} ${bad} ${(r.bytes / 1e6).toFixed(1)} MB of receipts in ${duration(r.ms)}; ${(r.of - r.checked).toLocaleString()} more finalized blocks with rows are not checked.`;
+  } catch (e) {
+    box.textContent = `${was} Receipts not checked: ${e?.message ?? e}.`;
+  }
+});
 $("tail-refresh")?.addEventListener("click", async () => {
   if (running) return;
   await refreshTail();

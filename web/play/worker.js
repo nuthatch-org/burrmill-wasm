@@ -1,11 +1,11 @@
 // The engine and its segment store, off the page's thread: a heavy view no longer freezes the tab,
 // and terminating this worker is how a query is cancelled. Each segment is fetched whole, checked
 // against the SHA-256 its key names, and kept in the origin-private file system.
-import init, { Nest, Decoder, Sealer, wasmMemory, verifyChain } from "./pkg/burrmill_wasm.js";
+import init, { Nest, Decoder, Sealer, wasmMemory, verifyChain, verifyReceipts } from "./pkg/burrmill_wasm.js";
 import { prepare } from "./chart.js";
 import { fetchTail, headBlock, MARGIN } from "./tail.js";
 import { agreedLogs } from "./finality.js";
-import { verifiedFinalized, verifiedCeiling } from "./verified.js";
+import { verifiedFinalized, verifiedCeiling, checkReceipts } from "./verified.js";
 
 const CONCURRENCY = 16;
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -133,6 +133,7 @@ async function fetchAndBind(rpc) {
   if (head - from + 1 > MAX_TAIL) throw new Error(`the mirror ends ${(head - cut).toLocaleString()} blocks behind the head, more than a tab fetches (${MAX_TAIL.toLocaleString()})`);
   const got = await fetchTail({ rpc, decoder, from, to: head });
   const rows = engine.setTail(JSON.stringify(got.rows));
+  lastTail = { rpc, raw: got.raw };
   return { from: cut + 1, to: head, rows, logs: got.logs, undecoded: got.undecoded, ms: performance.now() - t, host: new URL(rpc).host };
 }
 
@@ -276,6 +277,7 @@ async function seal({ rpc, second }) {
   const head = await headBlock(rpc);
   if (head - floor > MAX_TAIL) throw new Error(`this tab's last seal is ${(head - floor).toLocaleString()} blocks behind the head, more than a tab fetches (${MAX_TAIL.toLocaleString()})`);
   const got = await fetchTail({ rpc, decoder, from: floor + 1, to: head });
+  lastTail = { rpc, raw: got.raw };
   sealer.clear();
   sealer.push(JSON.stringify(got.rows));
   const lc = await lightClient();
@@ -308,6 +310,22 @@ async function seal({ rpc, second }) {
   };
 }
 
+/// The tail's logs as last fetched, for checking against receipts on request.
+let lastTail = null;
+
+/// The newest `count` blocks of the tail that have rows and are finalized, each checked against its
+/// receipts (RFC-0065 §6): about 1 MB a block, which is why the page asks first.
+async function receipts({ second, count }) {
+  if (!lastTail) throw new Error("no live tail to check yet");
+  const { rpc, raw } = lastTail;
+  const lc = await lightClient();
+  const top = await verifiedFinalized({ create: lc.create, chainId, rpc, shipped: lc.shipped, load: loadCheckpoint, save: saveCheckpoint });
+  const withRows = [...new Set(raw.map((l) => Number(BigInt(l.blockNumber))))].filter((n) => n <= top.number).sort((a, b) => b - a);
+  const t = performance.now();
+  const out = await checkReceipts({ rpc, sources: [rpc, second], top, blocks: withRows.slice(0, count), logs: raw, filter: JSON.parse(decoder.filter()), verifyChain, verifyReceipts });
+  return { ...out, finalized: top.number, of: withRows.length, ms: performance.now() - t, host: new URL(rpc).host };
+}
+
 async function query({ sql }) {
   const before = { ...counts };
   const t = performance.now();
@@ -337,7 +355,7 @@ async function clearCache() {
 // The browser's own record of what this worker fetched, independent of the counts above.
 const resources = () => performance.getEntriesByType("resource").map((e) => ({ url: e.name, bytes: e.transferSize, ms: Math.round(e.duration) }));
 
-const handlers = { open, tail, seal: (a) => seal(a).catch((e) => { engine.setTail("{}"); throw e; }), query, clearCache, resources };
+const handlers = { open, tail, receipts, seal: (a) => seal(a).catch((e) => { engine.setTail("{}"); throw e; }), query, clearCache, resources };
 self.onmessage = async ({ data: { id, op, args } }) => {
   try { self.postMessage({ id, ok: await handlers[op](args) }); }
   catch (e) { self.postMessage({ id, err: String(e?.message ?? e) }); }

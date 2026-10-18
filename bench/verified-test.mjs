@@ -7,8 +7,8 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { verifyChain } = require("../pkg/node/burrmill_wasm.js");
-const { verifiedFinalized, verifiedCeiling } = await import("../web/play/verified.js");
+const { verifyChain, verifyReceipts } = require("../pkg/node/burrmill_wasm.js");
+const { verifiedFinalized, verifiedCeiling, checkReceipts } = await import("../web/play/verified.js");
 
 const real = JSON.parse(fs.readFileSync(new URL("../src/fixtures/headers.json", import.meta.url), "utf8"));
 const floor = Number(BigInt(real[0].number)) - 1;
@@ -86,6 +86,48 @@ await ok("the light client's finalized block is given, and its checkpoint kept",
   assert.deepEqual([f.number, f.hash], [10, "0xab"]);
   assert.equal(started.checkpoint, "0xnewer");
   assert.equal(kept.at(-1).root, "0xcafe");
+});
+
+// A block's receipts, scripted from the real ones of block 26,214,986, and the logs an RPC returned.
+const receipts = JSON.parse(fs.readFileSync(new URL("../src/fixtures/receipts-26214986.json", import.meta.url), "utf8"));
+const blockLogs = receipts.flatMap((r) => r.logs);
+const address = blockLogs[0].address;
+const filter = { address: [address] };
+const theirs = blockLogs.filter((l) => l.address === address);
+function serveReceipts(rs) {
+  globalThis.fetch = async (url, init) => {
+    const { id, method, params } = JSON.parse(init.body);
+    if (method === "eth_getBlockReceipts") return { ok: true, text: async () => JSON.stringify({ jsonrpc: "2.0", id, result: rs }) };
+    const h = real.find((x) => x.number === params[0]);
+    return { ok: true, json: async () => ({ jsonrpc: "2.0", id, result: h ? structuredClone(h) : null }) };
+  };
+}
+const check = (rs, logs) => (serveReceipts(rs), checkReceipts({ rpc: RPC, top, blocks: [floor + 2], logs, filter, verifyChain, verifyReceipts }));
+
+await ok("a block whose receipts hash to its verified header, and match the RPC's logs, is complete", async () => {
+  const r = await check(receipts, theirs);
+  assert.deepEqual([r.checked, r.complete, r.differ.length], [1, 1, 0]);
+  assert.ok(theirs.length > 0);
+});
+
+await ok("a log the RPC left out of its answer is detected", async () => {
+  const r = await check(receipts, theirs.slice(1));
+  assert.equal(r.complete, 0);
+  assert.match(r.differ[0].reason, /returned \d+/);
+});
+
+await ok("a log the RPC altered in its answer is detected", async () => {
+  const r = await check(receipts, [{ ...theirs[0], data: "0x01" }, ...theirs.slice(1)]);
+  assert.equal(r.complete, 0);
+  assert.match(r.differ[0].reason, /1 of them not in its receipts/);
+});
+
+await ok("receipts altered to agree with an altered log do not hash to the header", async () => {
+  const forged = structuredClone(receipts);
+  forged.find((x) => x.logs.length).logs[0].data = "0x01";
+  const r = await check(forged, theirs);
+  assert.equal(r.complete, 0);
+  assert.match(r.differ[0].reason, /the receipts hash to/);
 });
 
 console.log(`RESULT: PASS (${cases} scripted cases)`);

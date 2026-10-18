@@ -78,3 +78,51 @@ export async function verifiedCeiling({ rpc, sources = [rpc], top, floor, logs, 
   }
   return { ceiling: top.number, reason: null, headers: headers.length };
 }
+
+const matches = (filter, log) => {
+  const addrs = [filter.address ?? []].flat().map((a) => a.toLowerCase());
+  if (addrs.length && !addrs.includes(log.address.toLowerCase())) return false;
+  return (filter.topics ?? []).every((want, i) => want == null || [want].flat().includes(log.topics[i]));
+};
+const sig = (l, i) => [i, l.address.toLowerCase(), l.topics.join(","), l.data].join("|");
+
+/// Each of `blocks` (at or below `top`) checked against its receipts: they must hash to the block's
+/// header, verified down from `top`, and the block's logs that match `filter` must be exactly `rpc`'s
+/// `logs` for it. A block that passes is complete: no row of it was altered, added or left out.
+export async function checkReceipts({ rpc, sources = [rpc], top, blocks, logs, filter, verifyChain, verifyReceipts, concurrency = 4 }) {
+  if (!blocks.length) return { checked: 0, complete: 0, differ: [], bytes: 0 };
+  const low = Math.min(...blocks);
+  const want = Array.from({ length: top.number - low + 1 }, (_, i) => low + i);
+  const headers = [];
+  for (let i = 0; i < want.length; i += 10) headers.push(...(await Promise.all(want.slice(i, i + 10).map((n) => header(sources, n)))));
+  // Past this, each header's fields are the ones that hashed down to the light client's block.
+  verifyChain(JSON.stringify(headers), top.hash);
+  const byNumber = new Map(headers.map((h) => [Number(BigInt(h.number)), h]));
+  const theirs = new Map();
+  for (const l of logs) {
+    const n = Number(BigInt(l.blockNumber));
+    if (!theirs.has(n)) theirs.set(n, []);
+    theirs.get(n).push(sig(l, Number(BigInt(l.logIndex))));
+  }
+  let bytes = 0;
+  const differ = [];
+  for (let i = 0; i < blocks.length; i += concurrency) {
+    await Promise.all(blocks.slice(i, i + concurrency).map(async (n) => {
+      const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "eth_getBlockReceipts", params: [`0x${n.toString(16)}`] }) });
+      if (!r.ok) throw new Error(`${new URL(rpc).host}: HTTP ${r.status}`);
+      const text = await r.text();
+      bytes += text.length;
+      const receipts = JSON.parse(text).result;
+      if (!receipts) throw new Error(`${new URL(rpc).host} has no receipts for block ${n}`);
+      let all;
+      try { all = JSON.parse(verifyReceipts(JSON.stringify(receipts), byNumber.get(n).receiptsRoot)); }
+      catch (e) { differ.push({ block: n, reason: String(e?.message ?? e) }); return; }
+      const ours = all.map(sig).filter((_, k) => matches(filter, all[k])).sort();
+      const got = [...(theirs.get(n) ?? [])].sort();
+      if (ours.join("\n") !== got.join("\n")) {
+        differ.push({ block: n, reason: `the block has ${ours.length} matching logs; ${new URL(rpc).host} returned ${got.length}, ${got.filter((s) => !ours.includes(s)).length} of them not in its receipts` });
+      }
+    }));
+  }
+  return { checked: blocks.length, complete: blocks.length - differ.length, differ: differ.sort((a, b) => a.block - b.block), bytes, headers: headers.length };
+}

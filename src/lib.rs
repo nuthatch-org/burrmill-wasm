@@ -4,6 +4,7 @@
 mod civil;
 pub mod chain;
 pub mod nest;
+pub mod receipts;
 pub mod sealer;
 pub mod tail;
 
@@ -232,6 +233,19 @@ mod bindings {
         let top = top.parse().map_err(err)?;
         let chain = crate::chain::verify(&headers, top).map_err(err)?;
         serde_json::to_string(&chain).map_err(err)
+    }
+
+    /// A block's receipts (a JSON array as `eth_getBlockReceipts` answers them) checked against `root`,
+    /// a verified header's `receiptsRoot`. Answers all the block's logs in order, as JSON.
+    #[wasm_bindgen(js_name = verifyReceipts)]
+    pub fn verify_receipts(receipts: &str, root: &str) -> Result<String, JsError> {
+        let receipts: Vec<serde_json::Value> = serde_json::from_str(receipts).map_err(err)?;
+        let logs = crate::receipts::verify(&receipts, root.parse().map_err(err)?).map_err(err)?;
+        let logs: Vec<_> = logs
+            .iter()
+            .map(|l| serde_json::json!({ "address": l.address, "topics": l.topics(), "data": l.data.data }))
+            .collect();
+        serde_json::to_string(&logs).map_err(err)
     }
 
     /// A panic reaches the console with its message, not as a bare `unreachable`.
