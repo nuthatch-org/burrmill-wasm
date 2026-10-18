@@ -292,7 +292,7 @@ $("tail-receipts")?.addEventListener("click", async () => {
       ? `${r.complete} of the ${r.checked} newest finalized tail blocks with rows are complete: their receipts hash to headers the light client verified, and the RPC returned every log in them that this nest indexes, unaltered, with none added.`
       : "No block of the tail with rows is finalized yet.";
     const bad = r.differ.map((d) => `Block ${d.block.toLocaleString()}: ${d.reason}.`).join(" ");
-    box.textContent = `${was} ${head} ${bad} ${(r.bytes / 1e6).toFixed(1)} MB of receipts in ${duration(r.ms)}; ${(r.of - r.checked).toLocaleString()} more finalized blocks with rows are not checked.`;
+    box.textContent = [was, head, bad, `${(r.bytes / 1e6).toFixed(1)} MB of receipts in ${duration(r.ms)}; ${(r.of - r.checked).toLocaleString()} more finalized blocks with rows are not checked.`].filter(Boolean).join(" ");
   } catch (e) {
     box.textContent = `${was} Receipts not checked: ${e?.message ?? e}.`;
   }
