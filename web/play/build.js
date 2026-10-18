@@ -193,7 +193,7 @@ function indexIt() {
     return;
   }
   worker?.terminate();
-  worker = new Worker("./build-worker.js", { type: "module" });
+  worker = new Worker(new URL("./build-worker.js", import.meta.url), { type: "module" });
   const from = Math.min(...state.contracts.map((c) => c.start_block));
   $("index").disabled = true;
   $("progress").textContent = `Backfilling from block ${from}…`;
@@ -209,6 +209,8 @@ function indexIt() {
         const first = JSON.parse(state.files["schema.json"]).tables[0]?.table;
         $("q").value = first ? `SELECT * FROM "${first}" ORDER BY block_number DESC LIMIT 20` : "SELECT 1";
       }
+    } else if (m.type === "sealed") {
+      $("sealed").textContent = `Finality moved: sealed through block ${m.finalized} (${new Date().toLocaleTimeString()}), ${m.segments} full segments and ${m.tails} tails.`;
     } else if (m.type === "head") {
       const line = $("progress").textContent.replace(/ (Following the head|Head) .*$/, "");
       $("progress").textContent = m.error ? `${line} Head: ${m.error}` : `${line} Head ${m.head}, ${m.unsealed} unsealed rows on top.`;

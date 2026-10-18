@@ -298,6 +298,45 @@ mod tests {
         );
     }
 
+    /// The current segments after a run of seals: every final one, and each table's latest tail.
+    fn current(runs: &[Vec<Sealed>]) -> BTreeMap<(String, bool, u64), String> {
+        let mut out = BTreeMap::new();
+        for s in runs.iter().flatten() {
+            out.retain(|(t, tail, _): &(String, bool, u64), _| !(*tail && *t == s.table));
+            out.insert((s.table.clone(), s.provisional, s.to_block), s.hash.clone());
+        }
+        out
+    }
+
+    /// RFC-0066 S2: a tab left open pushes and seals again each time finality moves, and must end
+    /// with the segments a single seal to the same block writes, full and tail alike.
+    #[test]
+    fn sealing_as_finality_moves_matches_one_seal() {
+        let rows = |from: u64, to: u64| {
+            let mut v = Vec::new();
+            for b in from..=to {
+                v.extend((0..120).map(|i| row("a__dense", b, i)));
+                if b % 7 == 0 {
+                    v.push(row("a__sparse", b, 500));
+                }
+            }
+            batch(v)
+        };
+        let mut once = Sealer::new(100, 10);
+        once.push(&rows(101, 145)).unwrap();
+        let one = current(&[once.seal(145).unwrap()]);
+
+        let mut steps = Sealer::new(100, 10);
+        steps.push(&rows(101, 117)).unwrap();
+        let first = steps.seal(117).unwrap();
+        steps.push(&rows(118, 145)).unwrap();
+        let second = steps.seal(145).unwrap();
+        let two = current(&[first, second]);
+
+        assert!(one.keys().any(|(_, tail, _)| !tail) && one.keys().any(|(_, tail, _)| *tail));
+        assert_eq!(one, two);
+    }
+
     #[test]
     fn a_row_that_comes_back_different_is_refused() {
         let mut s = Sealer::new(0, 10);

@@ -11,42 +11,73 @@ const WINDOW = 20000;
 // `files` is the nest as path to text; `from` its first block, `ceiling` the last it may seal.
 // `progress(event)` hears each window.
 export async function backfill({ w, files, from, rpc, second, span = 1800, ceiling = Infinity, store, progress = () => {}, log = () => {} }) {
+  const state = begin({ w, files, from, span, store });
+  await advance(state, { rpc, second, ceiling, progress, log });
+  return state;
+}
+
+// A nest with nothing sealed yet, resuming at `from`.
+export function begin({ w, files, from, span = 1800, store }) {
   const abis = Object.fromEntries(Object.entries(files).filter(([p]) => p.startsWith("abis/")));
   const decoder = new w.Decoder(files["nuthatch.toml"], JSON.stringify(abis));
-  const filter = JSON.parse(decoder.filter());
-  const sealer = new w.Sealer(from - 1, span);
-  const manifest = { tables: {} };
-  const provisional = {};
+  return {
+    decoder,
+    filter: JSON.parse(decoder.filter()),
+    sealer: new w.Sealer(from - 1, span),
+    store,
+    manifest: { tables: {} },
+    provisional: {},
+    sealedTo: from - 1,
+    finalized: from - 1,
+    logs: 0,
+    bytes: 0,
+    ms: 0,
+  };
+}
+
+// Seal from where `state` stopped to the block both RPCs call finalized (at most `ceiling`). Answers
+// whether anything new was sealed. Called again as finality advances.
+export async function advance(state, { rpc, second, ceiling = Infinity, progress = () => {}, log = () => {} }) {
   const t0 = Date.now();
-  let logs = 0;
-  let bytes = 0;
   // Both RPCs' finalized block, which must carry one hash; agreement on logs is checked per window.
-  const head = await agreedFinalized({ a: rpc, b: second, floor: from - 1 });
-  if (head.reason && head.ceiling < from) throw new Error(head.reason);
+  const head = await agreedFinalized({ a: rpc, b: second, floor: state.sealedTo });
+  if (head.reason) {
+    // Once following, a finalized block that has not moved yet is the usual answer, not a failure.
+    if (state.followed && /nothing past/.test(head.reason)) return false;
+    throw new Error(head.reason);
+  }
   const finalized = Math.min(head.ceiling, ceiling);
-  for (let next = from; next <= finalized; ) {
+  state.finalized = finalized;
+  const before = state.sealedTo;
+  for (let next = state.sealedTo + 1; next <= finalized; ) {
     const end = Math.min(finalized, next + WINDOW - 1);
-    const tail = await fetchTail({ rpc, decoder, from: next, to: end, log });
-    const agreed = await agreedLogs({ b: second, logs: tail.raw, filter, floor: next - 1, ceiling: end });
+    const tail = await fetchTail({ rpc, decoder: state.decoder, from: next, to: end, log });
+    const agreed = await agreedLogs({ b: second, logs: tail.raw, filter: state.filter, floor: next - 1, ceiling: end });
     if (agreed.reason) throw new Error(agreed.reason);
-    logs += tail.logs;
-    sealer.push(JSON.stringify(tail.rows));
-    const sealed = JSON.parse(sealer.seal(end));
+    state.logs += tail.logs;
+    state.sealer.push(JSON.stringify(tail.rows));
+    const sealed = JSON.parse(state.sealer.seal(end));
     sealed.forEach((s, i) => {
-      const file = sealer.bytes(i);
-      store.set(`${s.table}/${s.hash}.parquet`, file);
+      const file = state.sealer.bytes(i);
+      state.store.set(`${s.table}/${s.hash}.parquet`, file);
       const meta = { hash: s.hash, from_block: s.from_block, to_block: s.to_block, rows: s.rows };
-      if (s.provisional) provisional[s.table] = meta;
+      const old = state.provisional[s.table];
+      // A tail is replaced by the next cut of its table; its file is not read again.
+      if (old && old.hash !== s.hash) state.store.delete(`${s.table}/${old.hash}.parquet`);
+      delete state.provisional[s.table];
+      if (s.provisional) state.provisional[s.table] = meta;
       else {
-        (manifest.tables[s.table] ??= []).push(meta);
-        if (provisional[s.table]?.to_block <= s.to_block) delete provisional[s.table];
-        bytes += file.length;
+        (state.manifest.tables[s.table] ??= []).push(meta);
+        state.bytes += file.length;
       }
     });
+    state.sealedTo = end;
     next = end + 1;
-    progress({ through: end, finalized, logs, segments: count(manifest), ms: Date.now() - t0 });
+    state.ms += Date.now() - t0;
+    progress({ through: end, finalized, logs: state.logs, segments: count(state.manifest), ms: state.ms });
   }
-  return { decoder, sealer, manifest, provisional, finalized, logs, bytes, ms: Date.now() - t0 };
+  state.followed = true;
+  return state.sealedTo > before;
 }
 
 const count = (m) => Object.values(m.tables).reduce((n, s) => n + s.length, 0);
