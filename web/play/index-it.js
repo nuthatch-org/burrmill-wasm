@@ -28,6 +28,9 @@ export function begin({ w, files, from, span = 1800, store }) {
     manifest: { tables: {} },
     provisional: {},
     sealedTo: from - 1,
+    // Rows fetched and agreed but not yet in a segment: a span is cut only once it is complete, and
+    // on Arbitrum a span is 86,400 blocks. They are served from here, not fetched again.
+    pending: {},
     finalized: from - 1,
     logs: 0,
     bytes: 0,
@@ -56,6 +59,7 @@ export async function advance(state, { rpc, second, ceiling = Infinity, progress
     if (agreed.reason) throw new Error(agreed.reason);
     state.logs += tail.logs;
     state.sealer.push(JSON.stringify(tail.rows));
+    for (const [t, rows] of Object.entries(tail.rows)) (state.pending[t] ??= []).push(...rows);
     const sealed = JSON.parse(state.sealer.seal(end));
     sealed.forEach((s, i) => {
       const file = state.sealer.bytes(i);
@@ -72,6 +76,8 @@ export async function advance(state, { rpc, second, ceiling = Infinity, progress
       }
     });
     state.sealedTo = end;
+    const through = state.sealer.watermark();
+    for (const t of Object.keys(state.pending)) state.pending[t] = state.pending[t].filter((r) => Number(r.block_number) > through);
     next = end + 1;
     state.ms += Date.now() - t0;
     progress({ through: end, finalized, logs: state.logs, segments: count(state.manifest), ms: state.ms });
@@ -108,4 +114,12 @@ export function storeFns(store) {
     size: async (key) => get(key).length,
     read: async (key, offset, length) => get(key).subarray(offset, offset + length),
   };
+}
+
+// What a `Nest` serves past its segments: the agreed rows not yet sealed, then the head's.
+export function unsealed(state, head = {}) {
+  const out = {};
+  for (const [t, rows] of Object.entries(state.pending)) if (rows.length) out[t] = [...rows];
+  for (const [t, rows] of Object.entries(head)) (out[t] ??= []).push(...rows);
+  return JSON.stringify(out);
 }
