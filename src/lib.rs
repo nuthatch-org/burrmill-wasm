@@ -45,7 +45,8 @@ mod bindings {
         ) -> Result<JsNest, JsError> {
             let store = Arc::new(JsStore::new(size, read));
             let memory = memory_mib.map(|m| (m * 1024.0 * 1024.0) as usize);
-            let nest = Nest::open(store, prefix, manifest, schema.as_deref(), memory).map_err(err)?;
+            let nest =
+                Nest::open(store, prefix, manifest, schema.as_deref(), memory).map_err(err)?;
             Ok(JsNest(Rc::new(Mutex::new(nest))))
         }
 

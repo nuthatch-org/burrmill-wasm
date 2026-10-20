@@ -136,11 +136,11 @@ impl Sealer {
                     break;
                 }
             }
-            if let Some(first) = scan.first() {
-                if first > from {
-                    self.watermark = first - 1;
-                    from = first;
-                }
+            if let Some(first) = scan.first()
+                && first > from
+            {
+                self.watermark = first - 1;
+                from = first;
             }
             let cut = match scan.cut() {
                 None if scan.first().is_none() => {

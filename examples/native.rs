@@ -51,7 +51,10 @@ fn main() {
                     lines.len()
                 )
             }
-            Err(e) => format!(r#"{{"view":"{v}","err":{}}}"#, serde_json::to_string(&e).unwrap()),
+            Err(e) => format!(
+                r#"{{"view":"{v}","err":{}}}"#,
+                serde_json::to_string(&e).unwrap()
+            ),
         };
         println!("{line}");
     }
