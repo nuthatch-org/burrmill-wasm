@@ -23,12 +23,16 @@ async function call(rpc, body) {
 }
 async function one(rpc, method, params) {
   const j = await call(rpc, { jsonrpc: "2.0", id: ++id, method, params });
-  if (j.error) throw new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`);
+  if (j.error) throw Object.assign(new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`), { code: j.error.code });
   return j.result;
 }
 export const headBlock = async (rpc) => Number(BigInt(await one(rpc, "eth_blockNumber", [])));
 const hex = (n) => `0x${n.toString(16)}`;
-const refusedRange = (e) => /range|limit|too many|exceed|max|response size|10000|query returned|timeout|timed out/i.test(String(e?.message ?? e));
+/// Whether a getLogs over `span` blocks was refused for its width. mevblocker answers a busy wide range
+/// with -32603, "Internal error" or "service temporarily unavailable" (nuthatch #2296); for one block
+/// that is a fault.
+export const refusedRange = (e, span) =>
+  span > 1 && (e?.code === -32603 || /range|limit|too many|exceed|max|response size|10000|query returned|timeout|timed out/i.test(String(e?.message ?? e)));
 
 /// Each block's timestamp from its header, a handful at a time.
 export async function headerTimes(rpc, blocks) {
@@ -59,7 +63,7 @@ export async function fetchTail({ rpc, decoder, from, to, chunk = 2000, maxLogs 
       next = end + 1;
       if (logs.length >= maxLogs) to = end;
     } catch (e) {
-      if (size > 1 && refusedRange(e)) { size = Math.max(1, Math.floor(size / 2)); log(`range refused, asking ${size} blocks at a time`); continue; }
+      if (refusedRange(e, end - next + 1)) { size = Math.floor((end - next + 1) / 2); log(`range refused, asking ${size} blocks at a time`); continue; }
       throw e;
     }
   }

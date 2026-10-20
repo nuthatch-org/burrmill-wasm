@@ -2,7 +2,7 @@
 // only when two independent RPCs both call it finalized, give it the same hash, and return the same
 // logs, block hashes and timestamps included, for every block up to it. Nothing here is authenticated;
 // it is agreement.
-import { headerTimes } from "./tail.js";
+import { headerTimes, refusedRange } from "./tail.js";
 
 let id = 0;
 async function one(rpc, method, params) {
@@ -16,13 +16,12 @@ async function one(rpc, method, params) {
     if (!j && attempt === 5) throw new Error(`${new URL(rpc).host}: ${r instanceof Error ? r.message : `HTTP ${r.status}`}, six times`);
     if (!j) await new Promise((res) => setTimeout(res, 500 * 2 ** attempt));
   }
-  if (j.error) throw new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`);
+  if (j.error) throw Object.assign(new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`), { code: j.error.code });
   return j.result;
 }
 const hex = (n) => `0x${n.toString(16)}`;
 const num = (h) => Number(BigInt(h));
 const header = (rpc, tag) => one(rpc, "eth_getBlockByNumber", [typeof tag === "number" ? hex(tag) : tag, false]);
-const refusedRange = (e) => /range|limit|too many|exceed|max|response size|10000|query returned|timeout|timed out/i.test(String(e?.message ?? e));
 
 async function getLogs(rpc, filter, from, to) {
   const out = [];
@@ -36,7 +35,7 @@ async function getLogs(rpc, filter, from, to) {
       out.push(...(await one(rpc, "eth_getLogs", [{ ...filter, fromBlock: hex(next), toBlock: hex(end) }])));
       next = end + 1;
     } catch (e) {
-      if (size > 1 && refusedRange(e)) { size = Math.max(1, Math.floor(size / 2)); continue; }
+      if (refusedRange(e, end - next + 1)) { size = Math.floor((end - next + 1) / 2); continue; }
       throw e;
     }
   }
