@@ -2,7 +2,7 @@
 // playground opens a published one, keep the unsealed blocks to the head on top, and answer SQL.
 import init, * as w from "./pkg/burrmill_wasm.js";
 import { backfill, advance, openable, headRows, storeFns, unsealed } from "./index-it.js";
-import { budgetMiB } from "./budget.js";
+import { budgetMiB, ANSWER_MB } from "./budget.js";
 
 const ready = init();
 const FOLLOW_MS = 12000;
@@ -67,8 +67,8 @@ onmessage = async ({ data }) => {
       postMessage({ type: "views", id: data.id });
     } else if (data.type === "query") {
       const t0 = performance.now();
-      const text = await nest.query(data.sql);
-      postMessage({ type: "rows", id: data.id, text, ms: Math.round(performance.now() - t0) });
+      const { text, more } = await nest.queryUpTo(data.sql, ANSWER_MB * 1e6);
+      postMessage({ type: "rows", id: data.id, text, more, ms: Math.round(performance.now() - t0) });
     }
   } catch (e) {
     postMessage({ type: "error", id: data.id, error: String(e.message ?? e) });

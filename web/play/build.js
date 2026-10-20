@@ -4,7 +4,7 @@
 import init, * as w from "./pkg/burrmill_wasm.js";
 import { chainId, resolveContract } from "./resolve.js";
 import { zip } from "./zip.js";
-import { explainRefusal } from "./budget.js";
+import { explainRefusal, ANSWER_MB } from "./budget.js";
 import { CHAINS } from "./chains.js";
 
 const $ = (id) => document.getElementById(id);
@@ -23,7 +23,7 @@ function input() {
     name: $("name").value.trim() || "nest",
     chain: $("chain").value,
     chain_id: chain().id,
-    rpc_urls: [$("rpc").value.trim()],
+    rpc_urls: chain().rpc_urls,
     contracts: state.contracts,
   });
 }
@@ -49,7 +49,8 @@ function refresh() {
   );
   state.id = id;
   const name = $("name").value.trim() || "nest";
-  $("run").textContent = `unzip ${name}.zip && nuthatch dev --dir ${name}`;
+  const own = [$("rpc").value.trim(), $("second").value.trim()].some((u) => u && !chain().rpc_urls.includes(u));
+  $("run").textContent = `unzip ${name}.zip && nuthatch dev --dir ${name}${own ? " --rpc <your RPC>" : ""}`;
 
   const schema = JSON.parse(state.files["schema.json"]);
   $("tables").replaceChildren(
@@ -150,6 +151,7 @@ $("add").onclick = add;
 $("address").onkeydown = (e) => e.key === "Enter" && add();
 $("download").onclick = download;
 $("name").oninput = () => state.contracts.length && scaffold();
+$("rpc").onchange = $("second").onchange = () => state.contracts.length && refresh();
 $("view").onchange = () => {
   state.view = $("view").value;
   refresh();
@@ -178,17 +180,18 @@ let worker = null;
 let qid = 0;
 
 function table(text) {
-  const rows = JSON.parse(text);
+  const lines = text.split("\n").filter((l) => l.length);
+  const rows = lines.slice(0, 500).map((l) => JSON.parse(l));
   const cols = rows.length ? Object.keys(rows[0]) : [];
   const head = document.createElement("tr");
   for (const c of cols) head.append(Object.assign(document.createElement("th"), { textContent: c }));
-  const body = rows.slice(0, 500).map((r) => {
+  const body = rows.map((r) => {
     const tr = document.createElement("tr");
     for (const c of cols) tr.append(Object.assign(document.createElement("td"), { textContent: r[c] === null ? "NULL" : String(r[c]) }));
     return tr;
   });
   $("result").replaceChildren(head, ...body);
-  return rows.length;
+  return lines.length;
 }
 
 function indexIt() {
@@ -219,7 +222,8 @@ function indexIt() {
       const line = $("progress").textContent.replace(/ (Following the head|Head) .*$/, "");
       $("progress").textContent = m.error ? `${line} Head: ${m.error}` : `${line} Head ${m.head}, ${m.unsealed} unsealed rows on top.`;
     } else if (m.type === "rows") {
-      $("qstatus").textContent = `${table(m.text)} rows in ${m.ms} ms`;
+      const n = table(m.text);
+      $("qstatus").textContent = m.more ? `the first ${n} rows in ${m.ms} ms: the answer stopped at ${ANSWER_MB} MB; narrow it with WHERE or LIMIT` : `${n} rows in ${m.ms} ms`;
     } else if (m.type === "error") {
       if (m.id) $("qstatus").textContent = explainRefusal(m.error);
       else {

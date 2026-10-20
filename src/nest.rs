@@ -186,7 +186,7 @@ impl Nest {
         let mut rows = Vec::new();
         self.query_each(sql, |r| {
             rows.push(r);
-            Ok(())
+            Ok(true)
         })
         .await?;
         Ok(rows)
@@ -196,39 +196,61 @@ impl Nest {
     /// as it arrives and dropped, so the text is the only copy of the answer the tab holds: holding
     /// every row as a `Value` first took one view to 3.75 GiB of a 4 GiB address space.
     pub async fn query_text(&mut self, sql: &str, array: bool) -> Result<String> {
+        Ok(self.query_text_within(sql, array, usize::MAX).await?.0)
+    }
+
+    /// As `query_text`, stopped before the row that would take the text past `max_bytes`, and
+    /// whether it stopped: a page's answer is bounded where the engine's budget bounds only its work.
+    pub async fn query_text_within(
+        &mut self,
+        sql: &str,
+        array: bool,
+        max_bytes: usize,
+    ) -> Result<(String, bool)> {
         let mut text = String::from(if array { "[" } else { "" });
         let mut first = true;
+        let mut more = false;
         self.query_each(sql, |r| {
+            let row = serde_json::to_string(&r).map_err(|e| e.to_string())?;
+            if text.len() + row.len() + 1 > max_bytes {
+                more = true;
+                return Ok(false);
+            }
             if array && !first {
                 text.push(',');
             }
             first = false;
-            text.push_str(&serde_json::to_string(&r).map_err(|e| e.to_string())?);
+            text.push_str(&row);
             if !array {
                 text.push('\n');
             }
-            Ok(())
+            Ok(true)
         })
         .await?;
         if array {
             text.push(']');
         }
-        Ok(text)
+        Ok((text, more))
     }
 
     async fn query_each(
         &mut self,
         sql: &str,
-        mut f: impl FnMut(Value) -> Result<()>,
+        mut f: impl FnMut(Value) -> Result<bool>,
     ) -> Result<()> {
         self.prepare(sql).await?;
         let mut failed = None;
+        let mut stopped = false;
         let mut each = |b: arrow::record_batch::RecordBatch| {
             let civil = crate::civil::Columns::of(&b.schema());
             for mut r in burrmill::df::encode::rows(&b)? {
                 civil.rewrite(&mut r);
-                if let Err(e) = f(r) {
-                    failed = Some(e);
+                match f(r) {
+                    Ok(true) => {}
+                    Ok(false) => stopped = true,
+                    Err(e) => failed = Some(e),
+                }
+                if stopped || failed.is_some() {
                     return Err(burrmill::BurrmillError::Cancelled);
                 }
             }
@@ -240,6 +262,7 @@ impl Nest {
         let out = self.engine.sql_for_each(sql, &mut each);
         match (out, failed) {
             (_, Some(e)) => Err(e),
+            (_, None) if stopped => Ok(()),
             (r, None) => r.map_err(|e| e.to_string()),
         }
     }
@@ -382,4 +405,23 @@ fn find_keyword(haystack: &str, word: &str, from: usize) -> Option<(usize, usize
         at = end;
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::executor::block_on;
+
+    #[test]
+    fn an_answer_stops_before_the_row_that_would_pass_its_cap() {
+        let store = Arc::new(object_store::memory::InMemory::new());
+        let mut nest = Nest::open(store, "", r#"{"tables":{}}"#, None, None).unwrap();
+        let sql = "SELECT * FROM (VALUES (1), (2), (3)) AS v(x)";
+        let whole = block_on(nest.query_text(sql, false)).unwrap();
+        let line = whole.len() / 3;
+        let (text, more) = block_on(nest.query_text_within(sql, false, 2 * line + 1)).unwrap();
+        assert_eq!((text.lines().count(), more), (2, true));
+        let (text, more) = block_on(nest.query_text_within(sql, false, whole.len())).unwrap();
+        assert_eq!((text, more), (whole, false));
+    }
 }

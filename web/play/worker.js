@@ -6,7 +6,7 @@ import { prepare } from "./chart.js";
 import { fetchTail, headBlock, MARGIN } from "./tail.js";
 import { agreedLogs } from "./finality.js";
 import { verifiedFinalized, verifiedCeiling, checkReceipts } from "./verified.js";
-import { budgetMiB } from "./budget.js";
+import { budgetMiB, ANSWER_MB } from "./budget.js";
 
 const CONCURRENCY = 16;
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -297,7 +297,7 @@ async function seal({ rpc, second }) {
   // The headers cost about 15 KB a block, so they are fetched only when a seal would follow.
   if (sealer.reach(Math.min(top.number, head)) > 0) {
     const v = await verifiedCeiling({ rpc, sources: [rpc, second], top, floor, logs: got.raw, verifyChain });
-    const l = await agreedLogs({ b: second, logs: got.raw, filter: JSON.parse(decoder.filter()), floor, ceiling: v.ceiling });
+    const l = await agreedLogs({ b: second, logs: got.raw, times: got.times, filter: JSON.parse(decoder.filter()), floor, ceiling: v.ceiling });
     agreed = { ceiling: l.ceiling, reason: l.reason ?? v.reason };
   }
   const out = JSON.parse(sealer.seal(agreed.ceiling));
@@ -337,16 +337,17 @@ async function receipts({ second, count }) {
   return { ...out, finalized: top.number, of: withRows.length, ms: performance.now() - t, host: new URL(rpc).host };
 }
 
-async function query({ sql }) {
+async function query({ sql, whole }) {
   const before = { ...counts };
   const t = performance.now();
-  const text = await engine.queryLines(sql);
+  const { text, more } = whole ? { text: await engine.queryLines(sql), more: false } : await engine.queryUpTo(sql, ANSWER_MB * 1e6);
   const ms = performance.now() - t;
   let chart = null;
   try { chart = prepare(text.split("\n").filter((l) => l.length)); }
   catch (e) { console.warn("no chart:", e); }
   return {
     text,
+    more,
     chart,
     ms,
     fetched: counts.fetched - before.fetched,

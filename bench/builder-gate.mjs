@@ -1,5 +1,6 @@
 // RFC-0066 S1's gate: the nest the builder page makes, from the same modules the page loads, against
-// the nest `nuthatch init` makes, and the NID `nuthatch dev --dir` reports for the downloaded zip.
+// the nest `nuthatch init` makes with no `--rpc`, and the NID `nuthatch dev --dir` reports for the
+// downloaded zip. RPC only resolves the contracts, as the page's RPC box does.
 //   NUTHATCH=<binary> NAME=pair ADDRESSES=0x..[,0x..] [STARTS=n[,n]] node bench/builder-gate.mjs
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -8,6 +9,7 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { resolveContract, chainId } from "../web/play/resolve.js";
 import { zip } from "../web/play/zip.js";
+import { CHAINS } from "../web/play/chains.js";
 
 const w = createRequire(import.meta.url)("../pkg/node/burrmill_wasm.js");
 const bin = process.env.NUTHATCH;
@@ -24,7 +26,7 @@ for (const [i, address] of addresses.entries()) {
   console.log(`${c.alias}: ${c.address}${c.implementation ? ` via ${c.implementation}` : ""}, start ${c.start_block}`);
   contracts.push(c);
 }
-const input = JSON.stringify({ name, chain: "mainnet", chain_id: id, rpc_urls: [rpc], contracts });
+const input = JSON.stringify({ name, chain: "mainnet", chain_id: id, rpc_urls: CHAINS.mainnet.rpc_urls, contracts });
 const files = w.scaffoldNest(input);
 const page = JSON.parse(w.nestIdentity(input, files));
 const enc = new TextEncoder();
@@ -34,7 +36,7 @@ const root = mkdtempSync(join(tmpdir(), "builder-gate-"));
 writeFileSync(join(root, `${name}.zip`), archive);
 execFileSync("unzip", ["-q", `${name}.zip`, "-d", "tab"], { cwd: root });
 const startArgs = contracts.some((c) => c.start_block != null) ? ["--start-block", contracts.map((c) => c.start_block ?? "").join(",")] : [];
-execFileSync(bin, ["init", ...addresses, ...startArgs, "--chain", "mainnet", "--rpc", rpc, "--dir", join("node", name)], { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
+execFileSync(bin, ["init", ...addresses, ...startArgs, "--chain", "mainnet", "--dir", join("node", name)], { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
 let same = true;
 try {
   execFileSync("diff", ["-r", join("node", name), join("tab", name)], { cwd: root, stdio: "inherit" });

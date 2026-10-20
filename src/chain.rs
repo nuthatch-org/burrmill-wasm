@@ -14,30 +14,40 @@ use crate::nest::Result;
 pub fn verify(headers: &[Value], top: B256) -> Result<BTreeMap<u64, B256>> {
     let mut chain = BTreeMap::new();
     for v in headers {
-        let h: Header = serde_json::from_value(v.clone()).map_err(|e| format!("a header does not parse: {e}"))?;
+        let h: Header = serde_json::from_value(v.clone())
+            .map_err(|e| format!("a header does not parse: {e}"))?;
         let hash = h.hash_slow();
         // A header from a fork this crate does not know hashes differently, which would otherwise read as a forgery.
-        if let Some(claimed) = v.get("hash").and_then(Value::as_str) {
-            if claimed.parse::<B256>().ok() != Some(hash) {
-                return Err(format!("block {} hashes to {hash}, not the {claimed} its RPC gave", h.number).into());
-            }
+        if let Some(claimed) = v.get("hash").and_then(Value::as_str)
+            && claimed.parse::<B256>().ok() != Some(hash)
+        {
+            return Err(format!(
+                "block {} hashes to {hash}, not the {claimed} its RPC gave",
+                h.number
+            ));
         }
         if chain.insert(h.number, (hash, h.parent_hash)).is_some() {
-            return Err(format!("block {} is given twice", h.number).into());
+            return Err(format!("block {} is given twice", h.number));
         }
     }
-    let Some((&last, &(hash, _))) = chain.last_key_value() else { return Ok(BTreeMap::new()) };
+    let Some((&last, &(hash, _))) = chain.last_key_value() else {
+        return Ok(BTreeMap::new());
+    };
     if hash != top {
-        return Err(format!("block {last} is {hash}; the light client verified {top}").into());
+        return Err(format!(
+            "block {last} is {hash}; the light client verified {top}"
+        ));
     }
     let mut child = None::<(u64, B256)>;
     for (&n, &(hash, parent)) in chain.iter().rev() {
         if let Some((c, expect)) = child {
             if n + 1 != c {
-                return Err(format!("no header for block {}", n + 1).into());
+                return Err(format!("no header for block {}", n + 1));
             }
             if hash != expect {
-                return Err(format!("block {c}'s parent is {expect}, but block {n} hashes to {hash}").into());
+                return Err(format!(
+                    "block {c}'s parent is {expect}, but block {n} hashes to {hash}"
+                ));
             }
         }
         child = Some((n, parent));
@@ -60,8 +70,14 @@ mod tests {
     fn three_mainnet_blocks_link_to_the_verified_top() {
         let h = headers();
         let chain = verify(&h, top(&h)).unwrap();
-        assert_eq!(chain.keys().copied().collect::<Vec<_>>(), [26214985, 26214986, 26214987]);
-        assert_eq!(chain[&26214985], h[0]["hash"].as_str().unwrap().parse::<B256>().unwrap());
+        assert_eq!(
+            chain.keys().copied().collect::<Vec<_>>(),
+            [26214985, 26214986, 26214987]
+        );
+        assert_eq!(
+            chain[&26214985],
+            h[0]["hash"].as_str().unwrap().parse::<B256>().unwrap()
+        );
     }
 
     #[test]

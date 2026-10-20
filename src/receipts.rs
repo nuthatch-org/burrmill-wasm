@@ -9,7 +9,9 @@ use serde_json::Value;
 use crate::nest::Result;
 
 fn field<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
-    v.get(k).and_then(Value::as_str).ok_or_else(|| format!("a receipt without {k}"))
+    v.get(k)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("a receipt without {k}"))
 }
 fn quantity(v: &Value, k: &str) -> Result<u64> {
     u64::from_str_radix(field(v, k)?.trim_start_matches("0x"), 16).map_err(|e| format!("{k}: {e}"))
@@ -22,21 +24,38 @@ pub fn verify(receipts: &[Value], root: B256) -> Result<Vec<Log>> {
     let mut all = Vec::new();
     for r in receipts {
         let mut logs = Vec::new();
-        for l in r.get("logs").and_then(Value::as_array).ok_or("a receipt without logs")? {
-            let address: Address = field(l, "address")?.parse().map_err(|e| format!("address: {e}"))?;
+        for l in r
+            .get("logs")
+            .and_then(Value::as_array)
+            .ok_or("a receipt without logs")?
+        {
+            let address: Address = field(l, "address")?
+                .parse()
+                .map_err(|e| format!("address: {e}"))?;
             let topics = l
                 .get("topics")
                 .and_then(Value::as_array)
                 .ok_or("a log without topics")?
                 .iter()
-                .map(|t| t.as_str().ok_or("a topic that is not a string")?.parse::<B256>().map_err(|e| e.to_string()))
+                .map(|t| {
+                    t.as_str()
+                        .ok_or("a topic that is not a string")?
+                        .parse::<B256>()
+                        .map_err(|e| e.to_string())
+                })
                 .collect::<Result<Vec<_>>>()?;
-            let data: Bytes = field(l, "data")?.parse().map_err(|e| format!("data: {e}"))?;
+            let data: Bytes = field(l, "data")?
+                .parse()
+                .map_err(|e| format!("data: {e}"))?;
             logs.push(Log::new(address, topics, data).ok_or("a log with more than four topics")?);
         }
         all.extend(logs.iter().cloned());
         // Before Byzantium a receipt carried a state root; every block a tab can verify is after it.
-        let receipt = Receipt { status: Eip658Value::Eip658(quantity(r, "status")? == 1), cumulative_gas_used: quantity(r, "cumulativeGasUsed")?, logs };
+        let receipt = Receipt {
+            status: Eip658Value::Eip658(quantity(r, "status")? == 1),
+            cumulative_gas_used: quantity(r, "cumulativeGasUsed")?,
+            logs,
+        };
         let bloomed = ReceiptWithBloom::from(receipt);
         envelopes.push(match quantity(r, "type")? {
             0 => ReceiptEnvelope::Legacy(bloomed),
@@ -44,12 +63,18 @@ pub fn verify(receipts: &[Value], root: B256) -> Result<Vec<Log>> {
             2 => ReceiptEnvelope::Eip1559(bloomed),
             3 => ReceiptEnvelope::Eip4844(bloomed),
             4 => ReceiptEnvelope::Eip7702(bloomed),
-            t => return Err(format!("a receipt of type {t}, which this crate does not know")),
+            t => {
+                return Err(format!(
+                    "a receipt of type {t}, which this crate does not know"
+                ));
+            }
         });
     }
     let got = calculate_receipt_root(&envelopes);
     if got != root {
-        return Err(format!("the receipts hash to {got}, not the verified header's {root}"));
+        return Err(format!(
+            "the receipts hash to {got}, not the verified header's {root}"
+        ));
     }
     Ok(all)
 }
@@ -77,7 +102,10 @@ mod tests {
     #[test]
     fn an_altered_log_is_refused() {
         let mut r = receipts();
-        let i = r.iter().position(|x| !x["logs"].as_array().unwrap().is_empty()).unwrap();
+        let i = r
+            .iter()
+            .position(|x| !x["logs"].as_array().unwrap().is_empty())
+            .unwrap();
         r[i]["logs"][0]["data"] = Value::from("0x01");
         assert!(verify(&r, root()).unwrap_err().contains("hash to"));
     }
@@ -85,7 +113,10 @@ mod tests {
     #[test]
     fn a_removed_log_is_refused() {
         let mut r = receipts();
-        let i = r.iter().position(|x| !x["logs"].as_array().unwrap().is_empty()).unwrap();
+        let i = r
+            .iter()
+            .position(|x| !x["logs"].as_array().unwrap().is_empty())
+            .unwrap();
         r[i]["logs"].as_array_mut().unwrap().remove(0);
         assert!(verify(&r, root()).unwrap_err().contains("hash to"));
     }

@@ -7,6 +7,9 @@ import { fetchTail, headBlock } from "./tail.js";
 import { agreedFinalized, agreedLogs } from "./finality.js";
 
 const WINDOW = 20000;
+// A window is cut short at this many logs: its logs, rows and their JSON are all held at once, and a
+// busy contract's 20,000 blocks were more than a JavaScript string can hold (nuthatch #2234).
+const WINDOW_LOGS = 20000;
 
 // `files` is the nest as path to text; `from` its first block, `ceiling` the last it may seal.
 // `progress(event)` hears each window.
@@ -53,9 +56,9 @@ export async function advance(state, { rpc, second, ceiling = Infinity, progress
   state.finalized = finalized;
   const before = state.sealedTo;
   for (let next = state.sealedTo + 1; next <= finalized; ) {
-    const end = Math.min(finalized, next + WINDOW - 1);
-    const tail = await fetchTail({ rpc, decoder: state.decoder, from: next, to: end, log });
-    const agreed = await agreedLogs({ b: second, logs: tail.raw, filter: state.filter, floor: next - 1, ceiling: end });
+    const tail = await fetchTail({ rpc, decoder: state.decoder, from: next, to: Math.min(finalized, next + WINDOW - 1), maxLogs: WINDOW_LOGS, log });
+    const end = tail.to;
+    const agreed = await agreedLogs({ b: second, logs: tail.raw, times: tail.times, filter: state.filter, floor: next - 1, ceiling: end });
     if (agreed.reason) throw new Error(agreed.reason);
     state.logs += tail.logs;
     state.sealer.push(JSON.stringify(tail.rows));
@@ -77,7 +80,7 @@ export async function advance(state, { rpc, second, ceiling = Infinity, progress
     });
     state.sealedTo = end;
     const through = state.sealer.watermark();
-    for (const t of Object.keys(state.pending)) state.pending[t] = state.pending[t].filter((r) => Number(r.block_number) > through);
+    for (const t of Object.keys(state.pending)) state.pending[t] = state.pending[t].filter((r) => JSON.parse(r).block_number > through);
     next = end + 1;
     state.ms += Date.now() - t0;
     progress({ through: end, finalized, logs: state.logs, segments: count(state.manifest), ms: state.ms });

@@ -1,0 +1,74 @@
+{
+  "input": {
+    "name": "uint64",
+    "chain": "mainnet",
+    "chain_id": 1,
+    "rpc_urls": [
+      "https://a.test"
+    ],
+    "contracts": [
+      {
+        "alias": "bridge",
+        "address": "0x00000000000000000000000000000000000000b1",
+        "start_block": 101,
+        "abi": [
+          {
+            "type": "event",
+            "name": "Bridged",
+            "anonymous": false,
+            "inputs": [
+              {
+                "name": "destChainSelector",
+                "type": "uint64",
+                "indexed": false
+              },
+              {
+                "name": "delta",
+                "type": "int64",
+                "indexed": false
+              },
+              {
+                "name": "amount",
+                "type": "uint256",
+                "indexed": false
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logs": [
+    {
+      "address": "0x00000000000000000000000000000000000000b1",
+      "topics": [
+        "0x2a8e771d020c35d0443c3dbfe47d7764182829734e9dae6c4a3b7f81dd7d5848"
+      ],
+      "data": "0x00000000000000000000000000000000000000000000000045849994fc9c7b15ffffffffffffffffffffffffffffffffffffffffffffffffffdfffffffffffff00000000000000000000000000000000000000000000003635c9adc5dea00000",
+      "blockNumber": "0x67",
+      "blockHash": "0xa000000000000000000000000000000000000000000000000000000000000067",
+      "blockTimestamp": "0x6553f5d4",
+      "transactionHash": "0xc000000000000000000000000000000000000000000000000000000000000067",
+      "transactionIndex": "0x0",
+      "logIndex": "0x0",
+      "removed": false
+    },
+    {
+      "address": "0x00000000000000000000000000000000000000b1",
+      "topics": [
+        "0x2a8e771d020c35d0443c3dbfe47d7764182829734e9dae6c4a3b7f81dd7d5848"
+      ],
+      "data": "0x000000000000000000000000000000000000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80000000000000000000000000000000000000000000000000000000000000000000000000000007",
+      "blockNumber": "0x6b",
+      "blockHash": "0xa00000000000000000000000000000000000000000000000000000000000006b",
+      "blockTimestamp": "0x6553f604",
+      "transactionHash": "0xc00000000000000000000000000000000000000000000000000000000000006b",
+      "transactionIndex": "0x0",
+      "logIndex": "0x2",
+      "removed": false
+    }
+  ],
+  "sealed": {
+    "bridge__bridged": "942adb714035f14585387ed67681f5b193526a1f3aec5c19e7c27a947b3efe16"
+  }
+}

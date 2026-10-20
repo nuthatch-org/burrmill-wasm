@@ -3163,7 +3163,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-decode"
 version = "3.0.0-alpha.1"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=30675ff63da1406874cc024ce1b56ae8fc4cca9d#30675ff63da1406874cc024ce1b56ae8fc4cca9d"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=8d649a7bd43f6f6b2b3e277b78eb05696e119c60#8d649a7bd43f6f6b2b3e277b78eb05696e119c60"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
@@ -3178,7 +3178,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-identity"
 version = "0.1.0"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=30675ff63da1406874cc024ce1b56ae8fc4cca9d#30675ff63da1406874cc024ce1b56ae8fc4cca9d"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=8d649a7bd43f6f6b2b3e277b78eb05696e119c60#8d649a7bd43f6f6b2b3e277b78eb05696e119c60"
 dependencies = [
  "anyhow",
  "hex",
@@ -3191,7 +3191,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-scaffold"
 version = "0.1.0"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=30675ff63da1406874cc024ce1b56ae8fc4cca9d#30675ff63da1406874cc024ce1b56ae8fc4cca9d"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=8d649a7bd43f6f6b2b3e277b78eb05696e119c60#8d649a7bd43f6f6b2b3e277b78eb05696e119c60"
 dependencies = [
  "alloy-json-abi",
  "alloy-primitives",
@@ -3206,7 +3206,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-seal"
 version = "0.1.0"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=30675ff63da1406874cc024ce1b56ae8fc4cca9d#30675ff63da1406874cc024ce1b56ae8fc4cca9d"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=8d649a7bd43f6f6b2b3e277b78eb05696e119c60#8d649a7bd43f6f6b2b3e277b78eb05696e119c60"
 dependencies = [
  "anyhow",
  "arrow",
