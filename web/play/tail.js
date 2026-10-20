@@ -44,7 +44,8 @@ export async function headerTimes(rpc, blocks) {
   return out;
 }
 
-export async function fetchTail({ rpc, decoder, from, to, chunk = 2000, log = () => {} }) {
+/// Stops short of `to` after the request that brings `maxLogs` logs, and answers the block it reached.
+export async function fetchTail({ rpc, decoder, from, to, chunk = 2000, maxLogs = Infinity, log = () => {} }) {
   if (to < from) return { rows: {}, logs: 0, undecoded: 0, removed: 0, checked: 0, from, to };
   const filter = JSON.parse(decoder.filter());
   const logs = [];
@@ -56,6 +57,7 @@ export async function fetchTail({ rpc, decoder, from, to, chunk = 2000, log = ()
       const got = await one(rpc, "eth_getLogs", [{ ...filter, fromBlock: hex(next), toBlock: hex(end) }]);
       logs.push(...got);
       next = end + 1;
+      if (logs.length >= maxLogs) to = end;
     } catch (e) {
       if (size > 1 && refusedRange(e)) { size = Math.max(1, Math.floor(size / 2)); log(`range refused, asking ${size} blocks at a time`); continue; }
       throw e;
