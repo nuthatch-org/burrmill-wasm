@@ -2,7 +2,7 @@
 // each: its id, and the span its segments are cut on, which the tab must share to seal the bytes a
 // node seals. The RPCs are keyless ones that passed a browser's CORS preflight and served logs a week
 // back on 2026-10-18; on Base the second allows 50 blocks a query, so its agreement check is slow.
-// `rpc_urls` is what `init` writes for the chain, as of nuthatch main on 2026-10-20: part of the NID,
+// `rpc_urls` is what `init` writes for the chain, as of nuthatch 8d649a7b: part of the NID,
 // and the only RPCs a download carries, since what a visitor types may hold a key.
 export const CHAINS = {
   mainnet: { id: 1, label: "Ethereum", span: 1800, rpc: "https://rpc.mevblocker.io", second: "https://eth.drpc.org",

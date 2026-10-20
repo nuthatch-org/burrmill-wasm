@@ -113,7 +113,7 @@ mod tests {
         .unwrap()
     }
 
-    /// The NID `nuthatch dev --dir` reported on 2026-10-18 for the nest `nuthatch init` 5.7.1 wrote
+    /// The NID `nuthatch dev --dir` built from nuthatch 8d649a7b reported for the nest `init` wrote
     /// for this pair.
     #[test]
     fn the_tab_gives_the_nid_a_node_gives() {
@@ -122,7 +122,7 @@ mod tests {
         let (nid, data) = identity(pair(), files).unwrap();
         assert_eq!(
             nid,
-            "d1d2f195ea47fb02af03d523410e7f2b13a69bcc96302bbf37322dbe47c1d686"
+            "dee26ffe991499c669ffef3cf6f6a76caa45364985c30e22ef3423491241cb88"
         );
         assert_eq!(
             data,
