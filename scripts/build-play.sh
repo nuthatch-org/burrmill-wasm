@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -f pkg/web/burrmill_wasm_bg.wasm ] || { echo "no pkg/web: run scripts/build.sh first" >&2; exit 1; }
 rm -rf dist/play && mkdir -p dist/play/pkg
-cp web/play/index.html web/play/play.js web/play/worker.js web/play/chart.js web/play/tail.js web/play/finality.js web/play/verified.js web/play/nests.json web/play/compare.html web/play/compare.js web/play/build.html web/play/build.js web/play/resolve.js web/play/zip.js web/play/index-it.js web/play/build-worker.js web/play/chains.js web/play/budget.js web/duckbind.js dist/play/
+cp web/play/index.html web/play/play.js web/play/worker.js web/play/chart.js web/play/tail.js web/play/finality.js web/play/verified.js web/play/nests.json web/play/build.html web/play/build.js web/play/resolve.js web/play/zip.js web/play/index-it.js web/play/build-worker.js web/play/chains.js web/play/budget.js dist/play/
 # Helios (MIT), the light client the worker loads on its first seal (RFC-0065 S5), pinned by its hash.
 helios=target/helios-0.12.0
 if [ ! -f "$helios/package/dist/lib.mjs" ]; then
@@ -18,4 +18,11 @@ curl -sf https://lodestar-mainnet.chainsafe.io/eth/v1/beacon/headers/finalized |
   jq -c --arg at "$(($(date +%s) * 1000))" '{root: .data.root, slot: (.data.header.message.slot | tonumber), at: ($at | tonumber)}' > dist/play/checkpoint.json
 cp -R web/play/nests dist/play/nests
 cp pkg/web/burrmill_wasm.js pkg/web/burrmill_wasm_bg.wasm dist/play/pkg/
+# The engine comparison imports DuckDB-Wasm from jsDelivr, so it never shares an origin with pages that
+# keep visitors' RPC URLs: COMPARE=1 builds it alone into dist/compare, to serve from somewhere else.
+if [ -n "${COMPARE:-}" ]; then
+  rm -rf dist/compare && mkdir -p dist/compare/pkg
+  cp web/play/compare.html web/play/compare.js web/play/nests.json web/duckbind.js dist/compare/
+  cp pkg/web/burrmill_wasm.js pkg/web/burrmill_wasm_bg.wasm dist/compare/pkg/
+fi
 du -sh dist/play
