@@ -21,7 +21,7 @@ const second = process.env.SECOND ?? CHAINS[chain].second;
 const id = await chainId(rpc);
 const c = await resolveContract({ rpc, id, address: process.env.ADDRESS, start: process.env.START ? Number(process.env.START) : null, taken: [], w });
 const { implementation, name: _, ...contract } = c;
-const input = JSON.stringify({ name, chain, chain_id: id, rpc_urls: [rpc], contracts: [contract] });
+const input = JSON.stringify({ name, chain, chain_id: id, rpc_urls: CHAINS[chain].rpc_urls, contracts: [contract] });
 const files = JSON.parse(w.scaffoldNest(input));
 // NEST_DIR reuses a node's directory from an earlier run of this gate, which resumes where it stopped.
 const root = process.env.NEST_DIR ? dirname(process.env.NEST_DIR) : mkdtempSync(join(tmpdir(), "index-gate-"));

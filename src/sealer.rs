@@ -337,6 +337,37 @@ mod tests {
         assert_eq!(one, two);
     }
 
+    /// The node's bytes for the nest the builder scaffolds from `fixtures/uint64-nest.json`, whose events
+    /// carry a uint64 and an int64 past 2^53: sealed natively, as `bench/u64-gate.mjs` requires the tab to.
+    #[test]
+    fn a_nest_with_integers_past_2_53_seals_to_the_pinned_hashes() {
+        let f: Value = serde_json::from_str(include_str!("fixtures/uint64-nest.json")).unwrap();
+        let files = crate::builder::scaffold(serde_json::from_value(f["input"].clone()).unwrap());
+        let files = files.unwrap();
+        let d = crate::tail::Decoder::from_nest(&files["nuthatch.toml"], &files).unwrap();
+        let logs = f["logs"].as_array().unwrap();
+        let times = logs
+            .iter()
+            .map(|l| {
+                let n = |k: &str| u64::from_str_radix(&l[k].as_str().unwrap()[2..], 16).unwrap();
+                (n("blockNumber"), n("blockTimestamp"))
+            })
+            .collect();
+        let mut got = BTreeMap::new();
+        for (table, mut rows) in d.decode(logs, &times).unwrap().rows {
+            assert!(
+                rows.iter()
+                    .any(|r| r["destChainSelector"] == json!(5009297550715157269u64))
+            );
+            got.insert(
+                table,
+                content_hash(&nuthatch_seal::seal_rows(&mut rows).unwrap()),
+            );
+        }
+        let want: BTreeMap<String, String> = serde_json::from_value(f["sealed"].clone()).unwrap();
+        assert_eq!(got, want);
+    }
+
     #[test]
     fn a_row_that_comes_back_different_is_refused() {
         let mut s = Sealer::new(0, 10);

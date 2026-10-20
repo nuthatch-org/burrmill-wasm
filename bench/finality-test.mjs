@@ -1,12 +1,13 @@
 // RFC-0065 S4's finality gates, against a scripted RPC pair: a range one RPC calls finalized and the
-// other does not, or gives a different hash, or that was reorged under the logs, is never sealed.
+// other does not, or gives a different hash or timestamp, or that was reorged under the logs, is never
+// sealed.
 //   node bench/finality-test.mjs
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const { Sealer } = require("../pkg/node/burrmill_wasm.js");
-const { agreedCeiling } = await import("../web/play/finality.js");
+const { agreedCeiling, agreedLogs } = await import("../web/play/finality.js");
 
 const h = (chain, n) => `0x${chain}${n.toString(16).padStart(63, "0")}`;
 const hx = (n) => `0x${n.toString(16)}`;
@@ -16,6 +17,7 @@ const logsOn = (chain, extra = []) => [...Array.from({ length: 20 }, (_, i) => 1
   address: "0x00000000000000000000000000000000000000aa", topics: ["0x01"], data: "0x", removed: false,
 }));
 const canonical = () => "a";
+const time = (n) => 1_700_000_000 + n * 12;
 
 // Each fake RPC: its finalized block, its chain of block hashes, and the logs it answers.
 function serve(rpcs) {
@@ -25,7 +27,7 @@ function serve(rpcs) {
     let result;
     if (method === "eth_getBlockByNumber") {
       const n = params[0] === "finalized" ? rpc.finalized : Number(BigInt(params[0]));
-      result = n == null ? null : { number: hx(n), hash: h(rpc.chain(n), n) };
+      result = n == null ? null : { number: hx(n), hash: h(rpc.chain(n), n), timestamp: hx((rpc.time ?? time)(n)) };
     } else if (method === "eth_getLogs") {
       const [f, t] = [Number(BigInt(params[0].fromBlock)), Number(BigInt(params[0].toBlock))];
       result = rpc.logs.filter((l) => Number(BigInt(l.blockNumber)) >= f && Number(BigInt(l.blockNumber)) <= t);
@@ -36,7 +38,7 @@ function serve(rpcs) {
 const A = "https://a.test", B = "https://b.test";
 const rowsOf = (logs) => ({ t__x: logs.map((l) => {
   const n = Number(BigInt(l.blockNumber));
-  return { table: "t__x", block_number: n, log_index: 0, block_timestamp: 1_700_000_000 + n * 12, block_hash: l.blockHash, value: "1" };
+  return JSON.stringify({ table: "t__x", block_number: n, log_index: 0, block_timestamp: time(n), block_hash: l.blockHash, value: "1" });
 }) });
 function sealedThrough(ceiling, logs) {
   const s = new Sealer(100, 10);
@@ -83,4 +85,23 @@ got = await ask(good);
 assert.equal(got.ceiling, 152, String(got.reason));
 assert.ok(sealedThrough(got.ceiling, good) < 153);
 
-console.log("RESULT: PASS (6 scripted cases)");
+// A's timestamp for block 131 is not B's header's: nothing from block 131 on is sealed.
+const times = Object.fromEntries(good.map((l) => [Number(BigInt(l.blockNumber)), time(Number(BigInt(l.blockNumber)))]));
+const skewed = (n) => time(n) + (n === 131 ? 1 : 0);
+serve({ "a.test": { finalized: 200, chain: canonical, logs: good }, "b.test": { finalized: 200, chain: canonical, logs: good, time: skewed } });
+got = await agreedLogs({ b: B, logs: good, times, filter: {}, floor: 100, ceiling: 195 });
+assert.equal(got.ceiling, 130, String(got.reason));
+assert.match(got.reason, /different timestamps/);
+
+// B carries `blockTimestamp` on its logs, and 146's is not A's: the ceiling stops below it.
+const stamped = good.map((l) => { const n = Number(BigInt(l.blockNumber)); return { ...l, blockTimestamp: hx(time(n) + (n === 146 ? 1 : 0)) }; });
+serve({ "a.test": { finalized: 200, chain: canonical, logs: good }, "b.test": { finalized: 200, chain: canonical, logs: stamped } });
+got = await agreedLogs({ b: B, logs: good, times, filter: {}, floor: 100, ceiling: 195 });
+assert.equal(got.ceiling, 145, String(got.reason));
+
+// Every timestamp agrees, from B's logs or its headers: sealed to the ceiling.
+serve({ "a.test": { finalized: 200, chain: canonical, logs: good }, "b.test": { finalized: 200, chain: canonical, logs: good } });
+got = await agreedLogs({ b: B, logs: good, times, filter: {}, floor: 100, ceiling: 195 });
+assert.equal(got.ceiling, 195, String(got.reason));
+
+console.log("RESULT: PASS (9 scripted cases)");

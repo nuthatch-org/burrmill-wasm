@@ -55,7 +55,7 @@ export async function advance(state, { rpc, second, ceiling = Infinity, progress
   for (let next = state.sealedTo + 1; next <= finalized; ) {
     const end = Math.min(finalized, next + WINDOW - 1);
     const tail = await fetchTail({ rpc, decoder: state.decoder, from: next, to: end, log });
-    const agreed = await agreedLogs({ b: second, logs: tail.raw, filter: state.filter, floor: next - 1, ceiling: end });
+    const agreed = await agreedLogs({ b: second, logs: tail.raw, times: tail.times, filter: state.filter, floor: next - 1, ceiling: end });
     if (agreed.reason) throw new Error(agreed.reason);
     state.logs += tail.logs;
     state.sealer.push(JSON.stringify(tail.rows));
@@ -77,7 +77,7 @@ export async function advance(state, { rpc, second, ceiling = Infinity, progress
     });
     state.sealedTo = end;
     const through = state.sealer.watermark();
-    for (const t of Object.keys(state.pending)) state.pending[t] = state.pending[t].filter((r) => Number(r.block_number) > through);
+    for (const t of Object.keys(state.pending)) state.pending[t] = state.pending[t].filter((r) => JSON.parse(r).block_number > through);
     next = end + 1;
     state.ms += Date.now() - t0;
     progress({ through: end, finalized, logs: state.logs, segments: count(state.manifest), ms: state.ms });

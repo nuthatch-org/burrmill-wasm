@@ -6,6 +6,9 @@
 // completes with the module at 1,956 MiB.
 export const SMALL_MIB = 600;
 export const LARGE_MIB = 2048;
+// The budget bounds the engine's work, not the answer, which the page holds as text several times
+// over: a statement stops at this much encoded answer, and the page says it stopped.
+export const ANSWER_MB = 32;
 
 export function budgetMiB() {
   const nav = globalThis.navigator ?? {};

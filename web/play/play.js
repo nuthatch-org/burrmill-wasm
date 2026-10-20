@@ -1,7 +1,7 @@
 // A nest in a tab: pick a published nest, run SQL over its sealed segments, here. The engine runs in
 // a worker (worker.js), so the page stays responsive and Cancel can stop a statement outright.
 import { draw, stat } from "./chart.js";
-import { explainRefusal } from "./budget.js";
+import { explainRefusal, ANSWER_MB } from "./budget.js";
 
 const $ = (id) => document.getElementById(id);
 const SHOWN = 500;
@@ -148,7 +148,10 @@ function showSource(view) {
 }
 
 let lastLines = [];
+let lastMore = false;
 let running = false;
+// The bench digests whole answers, so it alone runs a statement past the page's answer cap.
+let whole = false;
 async function run() {
   if (running) return;
   running = true;
@@ -162,11 +165,12 @@ async function run() {
   const started = performance.now();
   const tick = setInterval(() => status(`running… ${duration(performance.now() - started)}`), 200);
   try {
-    const r = await call("query", { sql });
+    const r = await call("query", { sql, whole });
     lastLines = r.text.split("\n").filter((l) => l.length);
+    lastMore = r.more;
     render(lastLines);
     showViz(r.chart);
-    status(`${lastLines.length.toLocaleString()} rows in ${duration(r.ms)}`
+    status(`${r.more ? `the first ${lastLines.length.toLocaleString()} rows (${ANSWER_MB} MB of answer, as much as this page holds; narrow it with WHERE or LIMIT for the rest)` : `${lastLines.length.toLocaleString()} rows`} in ${duration(r.ms)}`
       + ` · ${r.fetched} segments fetched and verified (${(r.bytes / 1e6).toFixed(1)} MB), ${r.cached} from this browser's cache`
       + ` · ${r.mem_mib} MiB of wasm memory`);
     window.__last = { sql, rows: lastLines.length, ...r, text: undefined, chart: r.chart?.kind };
@@ -200,7 +204,8 @@ function render(lines) {
   });
   $("thead").replaceChildren(head);
   $("tbody").replaceChildren(...body);
-  $("more").textContent = lines.length > SHOWN ? `showing the first ${SHOWN} of ${lines.length.toLocaleString()} rows; CSV has them all` : "";
+  const of = `${lastMore ? "the first " : ""}${lines.length.toLocaleString()}`;
+  $("more").textContent = lines.length > SHOWN ? `showing the first ${SHOWN} of ${of} rows; CSV has ${lastMore ? "those" : "them all"}` : "";
   $("csv").hidden = lines.length === 0;
 }
 
@@ -342,6 +347,7 @@ async function digest(lines) {
 window.__resources = () => call("resources");
 
 window.__bench = async () => {
+  whole = true;
   const out = [];
   for (const pass of ["cold", "opfs"]) {
     if (pass === "cold") await call("clearCache").catch(() => {});
@@ -352,6 +358,7 @@ window.__bench = async () => {
       out.push({ pass, view: v, ...window.__last, digest: await digest(lastLines) });
     }
   }
+  whole = false;
   window.__benchResult = out;
   return out;
 };

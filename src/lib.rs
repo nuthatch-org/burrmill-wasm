@@ -123,8 +123,7 @@ mod bindings {
                 .0
                 .try_lock()
                 .ok_or_else(|| err("a statement is running"))?;
-            let rows = serde_json::from_str(rows).map_err(err)?;
-            Ok(nest.set_tail(rows))
+            Ok(nest.set_tail(rows_in(rows)?))
         }
     }
 
@@ -153,7 +152,8 @@ mod bindings {
         }
 
         /// `logs` as `eth_getLogs` returns them and `times` a JSON object of block number to unix
-        /// seconds. Answers `{rows, logs, undecoded, removed}` as JSON.
+        /// seconds. Answers `{rows, logs, undecoded, removed}` as JSON, each row as its own JSON text,
+        /// which JavaScript passes on unparsed: a parse would round a uint64 or int64 past 2^53.
         pub fn decode(&self, logs: &str, times: &str) -> Result<String, JsError> {
             let logs: Vec<serde_json::Value> = serde_json::from_str(logs).map_err(err)?;
             let times: std::collections::HashMap<String, u64> =
@@ -163,7 +163,12 @@ mod bindings {
                 .filter_map(|(k, v)| Some((k.parse().ok()?, v)))
                 .collect();
             let out = self.0.decode(&logs, &times).map_err(err)?;
-            serde_json::to_string(&out).map_err(err)
+            let rows: std::collections::BTreeMap<_, Vec<String>> = out
+                .rows
+                .iter()
+                .map(|(t, rs)| (t, rs.iter().map(|r| r.to_string()).collect()))
+                .collect();
+            Ok(serde_json::json!({ "rows": rows, "logs": out.logs, "undecoded": out.undecoded, "removed": out.removed }).to_string())
         }
     }
 
@@ -209,8 +214,7 @@ mod bindings {
 
         /// `rows` as `Decoder` answers them. Answers how many were new.
         pub fn push(&mut self, rows: &str) -> Result<usize, JsError> {
-            let rows = serde_json::from_str(rows).map_err(err)?;
-            self.sealer.push(&rows).map_err(err)
+            self.sealer.push(&rows_in(rows)?).map_err(err)
         }
 
         /// Seal through `ceiling`. Answers the segments as a JSON array; `bytes(i)` is the i-th's file.
@@ -326,6 +330,27 @@ mod bindings {
         }
     }
 
+    #[wasm_bindgen(js_class = Nest)]
+    impl JsNest {
+        /// As `queryLines`, stopped before the row that would take the answer past `max_bytes`.
+        /// Answers `{text, more}`, `more` true when it stopped.
+        #[wasm_bindgen(js_name = queryUpTo)]
+        pub fn query_up_to(&self, sql: String, max_bytes: f64) -> Promise {
+            let nest = Rc::clone(&self.0);
+            future_to_promise(async move {
+                let mut nest = nest.lock().await;
+                let (text, more) = nest
+                    .query_text_within(&sql, false, max_bytes as usize)
+                    .await
+                    .map_err(|e| JsValue::from(err(e)))?;
+                let out = js_sys::Object::new();
+                js_sys::Reflect::set(&out, &"text".into(), &JsValue::from_str(&text))?;
+                js_sys::Reflect::set(&out, &"more".into(), &JsValue::from_bool(more))?;
+                Ok(out.into())
+            })
+        }
+    }
+
     /// Arrow IPC (a stream) encoded as nuthatch's `/sql` encodes rows, one per line: how another
     /// engine's answer is put in the same bytes as this one's, to be compared.
     #[wasm_bindgen(js_name = encodeIpcLines)]
@@ -355,6 +380,23 @@ mod bindings {
     #[wasm_bindgen(js_name = wasmMemory)]
     pub fn wasm_memory() -> JsValue {
         wasm_bindgen::memory()
+    }
+
+    /// A table-to-rows object as `Decoder` answers it, each row still its JSON text.
+    fn rows_in(
+        rows: &str,
+    ) -> Result<std::collections::BTreeMap<String, Vec<serde_json::Value>>, JsError> {
+        let rows: std::collections::BTreeMap<String, Vec<String>> =
+            serde_json::from_str(rows).map_err(err)?;
+        rows.into_iter()
+            .map(|(t, rs)| {
+                let rs = rs
+                    .iter()
+                    .map(|r| serde_json::from_str(r))
+                    .collect::<Result<_, _>>();
+                Ok((t, rs.map_err(err)?))
+            })
+            .collect()
     }
 
     fn err(e: impl std::fmt::Display) -> JsError {

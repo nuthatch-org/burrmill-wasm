@@ -1,6 +1,8 @@
 // Where the tab's finality comes from before a light client (RFC-0065 §4): a block is sealed below
 // only when two independent RPCs both call it finalized, give it the same hash, and return the same
-// logs, block hashes included, for every block up to it. Nothing here is authenticated; it is agreement.
+// logs, block hashes and timestamps included, for every block up to it. Nothing here is authenticated;
+// it is agreement.
+import { headerTimes } from "./tail.js";
 
 let id = 0;
 async function one(rpc, method, params) {
@@ -76,15 +78,28 @@ export async function agreedFinalized({ a, b, floor }) {
 }
 
 /// `ceiling`, or the block before the first in `(floor, ceiling]` for which `b` does not return
-/// exactly `logs`.
-export async function agreedLogs({ b, logs, filter, floor, ceiling }) {
+/// exactly `logs`, or gives another timestamp than `times` (block to unix seconds, as sealed).
+export async function agreedLogs({ b, logs, times = {}, filter, floor, ceiling }) {
+  const got = await getLogs(b, filter, floor + 1, ceiling);
   const ours = byBlock(logs, floor, ceiling);
-  const theirs = byBlock(await getLogs(b, filter, floor + 1, ceiling), floor, ceiling);
+  const theirs = byBlock(got, floor, ceiling);
   const blocks = [...new Set([...ours.keys(), ...theirs.keys()])].sort((x, y) => x - y);
   for (const block of blocks) {
     if ((ours.get(block) ?? []).join("\n") !== (theirs.get(block) ?? []).join("\n")) {
-      return { ceiling: block - 1, reason: `the two RPCs return different logs for block ${block}` };
+      return timesAgree({ b, got, times, floor, ceiling: block - 1, reason: `the two RPCs return different logs for block ${block}` });
     }
   }
-  return { ceiling, reason: null, blocks: blocks.length };
+  return { ...(await timesAgree({ b, got, times, floor, ceiling, reason: null })), blocks: blocks.length };
+}
+
+/// `ceiling` lowered below the first block in `(floor, ceiling]` whose timestamp in `times` is not
+/// `b`'s: from `b`'s own logs where they carry one, else from `b`'s header.
+async function timesAgree({ b, got, times, floor, ceiling, reason }) {
+  const want = Object.keys(times).map(Number).filter((n) => n > floor && n <= ceiling).sort((x, y) => x - y);
+  const theirs = {};
+  for (const l of got) if (l.blockTimestamp && l.removed !== true) theirs[num(l.blockNumber)] = num(l.blockTimestamp);
+  Object.assign(theirs, await headerTimes(b, want.filter((n) => theirs[n] === undefined)));
+  const bad = want.find((n) => theirs[n] !== times[n]);
+  if (bad === undefined) return { ceiling, reason };
+  return { ceiling: bad - 1, reason: `the two RPCs give block ${bad} different timestamps` };
 }

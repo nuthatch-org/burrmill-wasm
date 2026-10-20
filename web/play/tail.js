@@ -31,7 +31,7 @@ const hex = (n) => `0x${n.toString(16)}`;
 const refusedRange = (e) => /range|limit|too many|exceed|max|response size|10000|query returned|timeout|timed out/i.test(String(e?.message ?? e));
 
 /// Each block's timestamp from its header, a handful at a time.
-async function headerTimes(rpc, blocks) {
+export async function headerTimes(rpc, blocks) {
   const out = {};
   for (let i = 0; i < blocks.length; i += 10) {
     const part = blocks.slice(i, i + 10);
@@ -84,5 +84,5 @@ export async function fetchTail({ rpc, decoder, from, to, chunk = 2000, log = ()
     checked = sample.length + missing.length;
   }
   const decoded = JSON.parse(decoder.decode(JSON.stringify(logs), JSON.stringify(times)));
-  return { ...decoded, checked, from, to, raw: logs };
+  return { ...decoded, checked, from, to, raw: logs, times };
 }

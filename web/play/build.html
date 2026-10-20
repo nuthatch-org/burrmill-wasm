@@ -76,6 +76,7 @@
     <label class="faint" for="rpc">RPC</label>
     <input id="rpc" value="https://rpc.mevblocker.io" spellcheck="false">
   </div>
+  <p class="faint" style="margin:0 0 8px">The RPCs typed here are used by this tab only. The download carries the keyless RPCs <code>init</code> writes for the chain, which are part of its identity, so a key pasted here never leaves the browser in it. To run the nest on your own endpoint, pass it to <code>nuthatch dev --rpc</code>.</p>
   <div id="status">Loading nuthatch…</div>
 
   <div id="out" hidden>
