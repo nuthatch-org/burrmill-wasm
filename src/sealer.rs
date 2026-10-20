@@ -339,6 +339,7 @@ mod tests {
 
     /// The node's bytes for the nest the builder scaffolds from `fixtures/uint64-nest.json`, whose events
     /// carry a uint64 and an int64 past 2^53: sealed natively, as `bench/u64-gate.mjs` requires the tab to.
+    /// The footer names the parquet version, so a lockfile that drifts from nuthatch's fails here too.
     #[test]
     fn a_nest_with_integers_past_2_53_seals_to_the_pinned_hashes() {
         let f: Value = serde_json::from_str(include_str!("fixtures/uint64-nest.json")).unwrap();
