@@ -8,6 +8,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { Sealer } = require("../pkg/node/burrmill_wasm.js");
 const { agreedCeiling, agreedLogs } = await import("../web/play/finality.js");
+const { fetchTail } = await import("../web/play/tail.js");
 
 const h = (chain, n) => `0x${chain}${n.toString(16).padStart(63, "0")}`;
 const hx = (n) => `0x${n.toString(16)}`;
@@ -19,7 +20,8 @@ const logsOn = (chain, extra = []) => [...Array.from({ length: 20 }, (_, i) => 1
 const canonical = () => "a";
 const time = (n) => 1_700_000_000 + n * 12;
 
-// Each fake RPC: its finalized block, its chain of block hashes, and the logs it answers.
+// Each fake RPC: its finalized block, its chain of block hashes, the logs it answers, and the error,
+// if any, it answers a getLogs over `[from, to]` with.
 function serve(rpcs) {
   globalThis.fetch = async (url, init) => {
     const { id, method, params } = JSON.parse(init.body);
@@ -30,6 +32,8 @@ function serve(rpcs) {
       result = n == null ? null : { number: hx(n), hash: h(rpc.chain(n), n), timestamp: hx((rpc.time ?? time)(n)) };
     } else if (method === "eth_getLogs") {
       const [f, t] = [Number(BigInt(params[0].fromBlock)), Number(BigInt(params[0].toBlock))];
+      const error = rpc.refuse?.(f, t);
+      if (error) return { ok: true, json: async () => ({ jsonrpc: "2.0", id, error }) };
       result = rpc.logs.filter((l) => Number(BigInt(l.blockNumber)) >= f && Number(BigInt(l.blockNumber)) <= t);
     } else throw new Error(method);
     return { ok: true, json: async () => ({ jsonrpc: "2.0", id, result }) };
@@ -104,4 +108,27 @@ serve({ "a.test": { finalized: 200, chain: canonical, logs: good }, "b.test": { 
 got = await agreedLogs({ b: B, logs: good, times, filter: {}, floor: 100, ceiling: 195 });
 assert.equal(got.ceiling, 195, String(got.reason));
 
-console.log("RESULT: PASS (9 scripted cases)");
+// mevblocker answers a busy range wider than its backend takes with JSON-RPC's -32603, as "Internal
+// error" or "service temporarily unavailable" (nuthatch #2296): a narrower range is asked instead.
+const internal = { code: -32603, message: "Internal error" };
+const unavailable = { code: -32603, message: "service temporarily unavailable" };
+const wide = (error) => (f, t) => (t - f + 1 > 10 ? error : null);
+for (const error of [internal, unavailable]) {
+  serve({ "b.test": { finalized: 200, chain: canonical, logs: good, refuse: wide(error) } });
+  got = await agreedLogs({ b: B, logs: good, times, filter: {}, floor: 100, ceiling: 195 });
+  assert.equal(got.ceiling, 195, String(got.reason));
+}
+
+// The same error for one block is a fault, not a range: it surfaces.
+serve({ "b.test": { finalized: 200, chain: canonical, logs: good, refuse: (f, t) => (f <= 146 && 146 <= t ? internal : null) } });
+await assert.rejects(agreedLogs({ b: B, logs: good, times, filter: {}, floor: 100, ceiling: 195 }), /Internal error/);
+
+// The first RPC's fetch, as Index it asks it, narrows the same way.
+const decoder = { filter: () => "{}", timestamps: () => false, decode: (logs) => JSON.stringify({ rows: {}, logs: JSON.parse(logs).length }) };
+serve({ "a.test": { finalized: 200, chain: canonical, logs: good, refuse: wide(internal) } });
+const tail = await fetchTail({ rpc: A, decoder, from: 101, to: 200 });
+assert.equal(tail.raw.length, good.length);
+serve({ "a.test": { finalized: 200, chain: canonical, logs: good, refuse: (f, t) => (f <= 146 && 146 <= t ? internal : null) } });
+await assert.rejects(fetchTail({ rpc: A, decoder, from: 101, to: 200 }), /Internal error/);
+
+console.log("RESULT: PASS (14 scripted cases)");
