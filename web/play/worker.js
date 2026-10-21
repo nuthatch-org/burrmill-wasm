@@ -72,7 +72,33 @@ function segmentStore(base) {
   };
 }
 
-const ready = init();
+// Stamped by scripts/build-play.sh with the unpacked size of the module, which the progress counts.
+const ENGINE_BYTES = 0;
+const stage = (s) => self.postMessage({ stage: s });
+stage({ name: "download", loaded: 0, total: ENGINE_BYTES });
+
+/// The module, streamed so the page can show how much of it has arrived. The compile runs alongside.
+async function fetchModule() {
+  const r = await fetch(new URL("./pkg/burrmill_wasm_bg.wasm", import.meta.url));
+  if (!r.ok) return r;
+  const encoded = r.headers.get("content-encoding");
+  const total = ENGINE_BYTES || (encoded ? 0 : Number(r.headers.get("content-length")) || 0);
+  let loaded = 0, last = 0;
+  const counted = r.body.pipeThrough(new TransformStream({
+    transform(chunk, out) {
+      loaded += chunk.length;
+      const now = performance.now();
+      if (now - last > 100) { last = now; stage({ name: "download", loaded, total }); }
+      out.enqueue(chunk);
+    },
+    flush() { stage({ name: "compile", loaded, total }); },
+  }));
+  return new Response(counted, { status: r.status, headers: { "content-type": "application/wasm" } });
+}
+const ready = init({ module_or_path: fetchModule() }).then(
+  (m) => { stage({ name: "engine" }); return m; },
+  (e) => { throw new Error(`the engine did not load: ${e?.message ?? e}`); },
+);
 let engine;
 
 // The live tail's decoder for the open nest, or why there is none.
@@ -84,6 +110,7 @@ const MAX_TAIL = 50_000;
 
 async function open({ base, views, decoder: decoderUrl }) {
   await ready;
+  stage({ name: "manifest" });
   const [manifestText, schemaText, decoderJson, seed] = await Promise.all([
     fetch(`${base}/manifest.json`, { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`manifest: HTTP ${r.status}`); return r.text(); }),
     fetch(`${base}/schema.json`).then((r) => (r.ok ? r.text() : undefined)),
@@ -99,6 +126,7 @@ async function open({ base, views, decoder: decoderUrl }) {
   // A nest whose tables are all under the seal floor has every row in the seed's tails and nothing
   // in the catalogue, so the tails are part of what the mirror publishes, not only a place to resume.
   if (seed && seed.catalogue_sha256 === (await sha(manifestText))) {
+    stage({ name: "seed", tables: Object.keys(seed.tails).length });
     try {
       for (const [t, s] of Object.entries(seed.tails)) await bytesOf(s.hash, `${base}/_seed/${t}.tail`);
       cur.seed = seed;
