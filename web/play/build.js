@@ -204,6 +204,18 @@ function indexIt() {
   const from = Math.min(...state.contracts.map((c) => c.start_block));
   $("index").disabled = true;
   $("progress").textContent = `Backfilling from block ${from}…`;
+  // A worker that fails to load says so only here, and would otherwise leave "Backfilling" up for good.
+  const stopped = (why) => {
+    worker?.terminate();
+    worker = null;
+    $("index").disabled = false;
+    $("progress").textContent = `Stopped: ${why}`;
+  };
+  worker.onerror = (e) => {
+    e.preventDefault();
+    stopped(`the indexer failed: ${e.message || "its script failed to load, most likely a page and an engine from different deploys"}. Reload, or clear this site's cache.`);
+  };
+  worker.onmessageerror = () => stopped("a reply from the indexer could not be read. Reload the page.");
   worker.onmessage = ({ data: m }) => {
     if (m.type === "progress") {
       $("progress").textContent = `Sealed through ${m.through} of ${m.finalized}: ${m.logs} logs, ${m.segments} segments, ${(m.ms / 1000).toFixed(1)} s`;

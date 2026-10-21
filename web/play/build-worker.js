@@ -40,8 +40,8 @@ const sortedViews = (files) =>
   Object.entries(files).filter(([p]) => p.startsWith("views/") && p.endsWith(".sql")).sort(([a], [b]) => (a < b ? -1 : 1));
 
 onmessage = async ({ data }) => {
-  await ready;
   try {
+    await ready;
     if (data.type === "index") {
       const store = new Map();
       const done = await backfill({

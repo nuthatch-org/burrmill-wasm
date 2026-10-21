@@ -3,7 +3,7 @@
 # Run scripts/build.sh first; scripts/play-index.mjs refreshes web/play/nests.json.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-[ -f pkg/web/burrmill_wasm_bg.wasm ] || { echo "no pkg/web: run scripts/build.sh first" >&2; exit 1; }
+node scripts/check-pkg.mjs
 rm -rf dist/play && mkdir -p dist/play/pkg
 cp web/play/index.html web/play/play.js web/play/worker.js web/play/chart.js web/play/tail.js web/play/finality.js web/play/verified.js web/play/nests.json web/play/build.html web/play/build.js web/play/resolve.js web/play/zip.js web/play/index-it.js web/play/build-worker.js web/play/chains.js web/play/budget.js dist/play/
 # Helios (MIT), the light client the worker loads on its first seal (RFC-0065 S5), pinned by its hash.
@@ -18,6 +18,10 @@ curl -sf https://lodestar-mainnet.chainsafe.io/eth/v1/beacon/headers/finalized |
   jq -c --arg at "$(($(date +%s) * 1000))" '{root: .data.root, slot: (.data.header.message.slot | tonumber), at: ($at | tonumber)}' > dist/play/checkpoint.json
 cp -R web/play/nests dist/play/nests
 cp pkg/web/burrmill_wasm.js pkg/web/burrmill_wasm_bg.wasm dist/play/pkg/
+# The worker shows download progress against the unpacked size: a brotli response has no Content-Length.
+bytes=$(wc -c < pkg/web/burrmill_wasm_bg.wasm | tr -d ' ')
+sed -i '' "s/^const ENGINE_BYTES = 0;/const ENGINE_BYTES = $bytes;/" dist/play/worker.js
+grep -q "^const ENGINE_BYTES = $bytes;" dist/play/worker.js || { echo "worker.js: ENGINE_BYTES not stamped" >&2; exit 1; }
 # The engine comparison imports DuckDB-Wasm from jsDelivr, so it never shares an origin with pages that
 # keep visitors' RPC URLs: COMPARE=1 builds it alone into dist/compare, to serve from somewhere else.
 if [ -n "${COMPARE:-}" ]; then

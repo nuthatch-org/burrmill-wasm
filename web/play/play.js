@@ -6,22 +6,104 @@ import { explainRefusal, ANSWER_MB } from "./budget.js";
 const $ = (id) => document.getElementById(id);
 const SHOWN = 500;
 
-const index = await (await fetch("./nests.json")).json();
+// The loading state's styles come with the script, so the site's page, which proxies it, gets them
+// in the same deploy. The colours are the page's own variables.
+document.head.append(Object.assign(document.createElement("style"), { textContent: `
+  .pg-load { display: flex; flex-direction: column; gap: 6px; }
+  .pg-track { position: relative; height: 3px; width: min(360px, 100%); border-radius: 2px; background: var(--line); overflow: hidden; }
+  .pg-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 2px; background: var(--accent); transition: width 0.15s linear; }
+  .pg-fill.pg-indef { width: 30%; animation: pg-slide 1.2s ease-in-out infinite; }
+  @keyframes pg-slide { from { left: -30%; } to { left: 100%; } }
+  .pg-skel { height: 1.7em; margin: 1px 0; border-radius: 5px; background: var(--code); animation: pg-pulse 1.4s ease-in-out infinite; }
+  .pg-skel:nth-child(3n + 2) { width: 80%; } .pg-skel:nth-child(3n) { width: 62%; }
+  .pg-none { color: var(--faint); font-size: 0.82rem; padding: 5px 8px; }
+  @keyframes pg-pulse { 50% { opacity: 0.4; } }
+  @media (prefers-reduced-motion: reduce) {
+    .pg-fill, .pg-fill.pg-indef, .pg-skel { animation: none; transition: none; }
+    .pg-fill.pg-indef { left: 0; width: 100%; opacity: 0.5; }
+  }
+` }));
+
+const bar = {
+  box: Object.assign(document.createElement("div"), { className: "pg-load" }),
+  text: document.createElement("span"),
+  track: Object.assign(document.createElement("div"), { className: "pg-track" }),
+  fill: document.createElement("div"),
+};
+bar.track.append(bar.fill);
+bar.box.append(bar.text, bar.track);
+/// A stage of opening a nest: what is happening, and how far along it is when that is known.
+function loading(text, frac = null) {
+  if (bar.box.parentNode !== $("status")) $("status").replaceChildren(bar.box);
+  $("status").classList.remove("err");
+  bar.text.textContent = text;
+  bar.fill.className = frac === null ? "pg-fill pg-indef" : "pg-fill";
+  bar.fill.style.width = frac === null ? "" : `${(Math.min(1, frac) * 100).toFixed(1)}%`;
+}
+function skeleton() {
+  $("views").setAttribute("aria-busy", "true");
+  $("views").replaceChildren(...Array.from({ length: 8 }, () => Object.assign(document.createElement("div"), { className: "pg-skel" })));
+  $("examples").replaceChildren();
+  $("about").replaceChildren();
+}
+
+function status(s, err = false) { $("status").textContent = s; $("status").classList.toggle("err", err); }
+const message = (e) => String(e?.message ?? e);
+
+skeleton();
+loading("loading the list of nests…");
+const index = await fetch("./nests.json").then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+  .catch((e) => { status(`couldn't load the list of nests: ${message(e)}. Reload to try again.`, true); throw e; });
 
 let worker;
 let seq = 0;
 const pending = new Map();
+const mb = (n) => (n / 1e6).toFixed(1);
+function stageText({ name, loaded, total, tables }) {
+  const of = nest?.nest ?? "the nest";
+  switch (name) {
+    case "download": return [total ? `downloading the engine: ${mb(loaded)} of ${mb(total)} MB unpacked` : `downloading the engine: ${mb(loaded)} MB`, total ? loaded / total : null];
+    case "compile": return ["compiling the engine…", null];
+    case "engine": return [`engine ready; opening ${of}…`, null];
+    case "manifest": return [`reading ${of}'s manifest from the mirror…`, null];
+    case "seed": return [`fetching ${of}'s newest rows, ${tables} table tail${tables === 1 ? "" : "s"}, from the mirror…`, null];
+    default: return null;
+  }
+}
 function startWorker() {
   worker?.terminate();
   for (const { reject } of pending.values()) reject(new Error("cancelled"));
   pending.clear();
-  worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-  worker.onmessage = ({ data: { id, ok, err } }) => {
+  const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+  let alive = false;
+  const fail = (why) => {
+    if (w !== worker) return;
+    w.terminate();
+    const err = new Error(why);
+    for (const { reject } of pending.values()) reject(err);
+    pending.clear();
+    status(why, true);
+  };
+  // A module worker that fails to load reports only here, often with no message, and never replies.
+  w.onerror = (e) => {
+    e.preventDefault();
+    const why = e.message || "its script failed to load, most likely a page and an engine from different deploys";
+    fail(alive ? `the engine stopped: ${why}. Reload the page.` : `couldn't start the engine: ${why}. Reload, or clear this site's cache.`);
+  };
+  w.onmessageerror = () => fail("a reply from the engine could not be read. Reload the page.");
+  w.onmessage = ({ data: { id, ok, err, stage } }) => {
+    alive = true;
+    if (stage) {
+      const s = stageText(stage);
+      if (s && w === worker) loading(...s);
+      return;
+    }
     const p = pending.get(id);
     if (!p) return;
     pending.delete(id);
     err === undefined ? p.resolve(ok) : p.reject(new Error(err));
   };
+  worker = w;
 }
 const call = (op, args) => new Promise((resolve, reject) => {
   const id = ++seq;
@@ -29,7 +111,6 @@ const call = (op, args) => new Promise((resolve, reject) => {
   worker.postMessage({ id, op, args });
 });
 
-function status(s, err = false) { $("status").textContent = s; $("status").classList.toggle("err", err); }
 const duration = (ms) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
 
 /// The statement that defines `view`, cut from the nest's view files for showing beside the list.
@@ -52,15 +133,18 @@ let nest;
 let opened;
 async function openNest(i, then) {
   nest = index.nests[i];
+  skeleton();
+  loading(`starting the engine for ${nest.nest}…`);
   startWorker();
-  status(`opening ${nest.nest}…`);
   opened = await call("open", { base: `${index.base}/${nest.dataset}`, views: nest.views.map((v) => v.text), decoder: nest.decoder && new URL(nest.decoder, location.href).href });
+  $("views").removeAttribute("aria-busy");
   $("views").replaceChildren(...opened.views.map((v) => {
     const b = Object.assign(document.createElement("button"), { textContent: v, className: "view" });
     b.addEventListener("click", () => { $("sql").value = `SELECT * FROM "${v}"`; showSource(v); run(); });
     b.addEventListener("mouseenter", () => showSource(v));
     return b;
   }));
+  if (!opened.views.length) $("views").replaceChildren(Object.assign(document.createElement("div"), { className: "pg-none", textContent: "this nest publishes no views" }));
   $("about").replaceChildren(
     `${opened.tables} tables, ${opened.segments.toLocaleString()} segments, ${opened.rows.toLocaleString()} rows sealed, dataset `,
     Object.assign(document.createElement("code"), { textContent: `${nest.dataset.slice(0, 12)}…` }),
@@ -77,12 +161,25 @@ async function openNest(i, then) {
     b.addEventListener("click", () => { $("sql").value = q; run(); });
     return b;
   }));
+  if (!opened.tail.refused) loading(`${nest.nest} is open; fetching the blocks past the mirror before the first query…`);
   await refreshTail();
   if (then) { $("sql").value = then; run(); }
   else {
     if (opened.views[0]) { $("sql").value = `SELECT * FROM "${opened.views[0]}"`; showSource(opened.views[0]); run(); }
     else status(`${nest.nest} ready.`);
   }
+}
+
+/// Opens a nest and, unless a later open has replaced it, says on the page why it did not.
+let opening = 0;
+function openShown(i, then) {
+  const mine = ++opening;
+  return openNest(i, then).catch((e) => {
+    if (mine !== opening) return;
+    status(`${nest?.nest ?? "the nest"} did not open: ${message(e)}`, true);
+    $("views").removeAttribute("aria-busy");
+    $("views").replaceChildren(Object.assign(document.createElement("div"), { className: "pg-none", textContent: "no views: the nest did not open" }));
+  });
 }
 
 // RFC-0065 S3: the blocks past the mirror's cut, fetched from an RPC and decoded here. Only a page
@@ -282,9 +379,9 @@ function csv() {
 }
 
 $("nest").replaceChildren(...index.nests.map((n, i) => Object.assign(document.createElement("option"), { value: i, textContent: n.nest })));
-$("nest").addEventListener("change", (e) => openNest(+e.target.value).catch((err) => status(String(err?.message ?? err), true)));
+$("nest").addEventListener("change", (e) => openShown(+e.target.value));
 $("run").addEventListener("click", run);
-$("cancel").addEventListener("click", () => { startWorker(); status("cancelled; reopening…"); openNest(+$("nest").value); });
+$("cancel").addEventListener("click", () => openShown(+$("nest").value));
 $("csv").addEventListener("click", csv);
 $("sql").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run(); });
 $("tail-receipts")?.addEventListener("click", async () => {
@@ -366,4 +463,4 @@ window.__bench = async () => {
 const params = new URLSearchParams(location.search);
 let start = Math.max(0, index.nests.findIndex((n) => n.nest === (params.get("nest") ?? "defi-pulse-nest")));
 $("nest").value = start;
-openNest(start, params.get("q")).catch((err) => status(String(err?.message ?? err), true));
+openShown(start, params.get("q"));
