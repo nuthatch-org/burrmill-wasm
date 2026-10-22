@@ -7,7 +7,7 @@ import { fetchTail, headBlock, MARGIN } from "./tail.js";
 import { agreedLogs } from "./finality.js";
 import { verifiedFinalized, verifiedCeiling, checkReceipts } from "./verified.js";
 import { budgetMiB, ANSWER_MB } from "./budget.js";
-import { cutCatalogue, pinDigest } from "./postcard.js";
+import { cutCatalogue, cutsOf, pinDigest } from "./postcard.js";
 
 const CONCURRENCY = 16;
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -195,6 +195,17 @@ async function openPinned({ base, views, pin }) {
     tail: { refused },
     pin: { state: "open", host, digest, chain_id: published?.chain_id ?? null },
   };
+}
+
+/// The cut and digest a postcard of what is open would carry: the link's own when it is one, else the
+/// sealed catalogue as the host published it, without the seed's tails or anything sealed here.
+async function pinOf() {
+  if (cur.pin) return { ...cur.pin, through: Math.max(0, ...Object.values(cur.pin.cuts)) };
+  const schema = await fetch(`${cur.base}/schema.json`, { cache: "no-cache" }).then(async (r) => { if (!r.ok) throw new Error(`schema.json: HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); });
+  if (new TextDecoder().decode(schema) !== cur.schemaText) throw new Error("the host's schema.json changed since this page opened the nest; reload to make a postcard");
+  const manifest = JSON.parse(cur.manifestText);
+  const cuts = cutsOf(manifest);
+  return { cuts, digest: await pinDigest(schema, cutCatalogue(manifest, cuts).manifest.tables), through: Math.max(0, ...Object.values(cuts)) };
 }
 
 /// Every log past the mirror's cut, from `rpc`, decoded and bound beside the segments. Replaces the
@@ -447,7 +458,7 @@ async function clearCache() {
 // The browser's own record of what this worker fetched, independent of the counts above.
 const resources = () => performance.getEntriesByType("resource").map((e) => ({ url: e.name, bytes: e.transferSize, ms: Math.round(e.duration) }));
 
-const handlers = { open, tail, receipts, seal: (a) => seal(a).catch((e) => { engine.setTail("{}"); throw e; }), query, clearCache, resources };
+const handlers = { open, pin: pinOf, tail, receipts, seal: (a) => seal(a).catch((e) => { engine.setTail("{}"); throw e; }), query, clearCache, resources };
 self.onmessage = async ({ data: { id, op, args } }) => {
   try { self.postMessage({ id, ok: await handlers[op](args) }); }
   catch (e) { self.postMessage({ id, err: String(e?.message ?? e) }); }
