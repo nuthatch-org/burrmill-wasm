@@ -1,6 +1,9 @@
 // RFC-0068: a postcard is a link to a published nest, pinned to a cut of its catalogue, with its
 // query in the fragment, which no request carries. Shared by the page and its worker.
 
+// Past this many characters a link gets a short form with its SQL kept beside the nest (§4).
+export const LONG = 1500;
+
 const enc = new TextEncoder();
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 export const sha256hex = async (bytes) => hex(await crypto.subtle.digest("SHA-256", bytes));
@@ -41,6 +44,16 @@ export async function decodeCuts(c) {
 }
 
 const sealed = (entries) => (entries ?? []).filter((e) => !e.provisional);
+
+/// Each table's highest sealed `to_block`: the cut a postcard made from this catalogue carries.
+export function cutsOf(manifest) {
+  const cuts = {};
+  for (const [t, es] of Object.entries(manifest.tables)) {
+    const s = sealed(es);
+    if (s.length) cuts[t] = Math.max(...s.map((e) => e.to_block));
+  }
+  return cuts;
+}
 
 /// The catalogue as the link pins it. A table the link names no cut for admits nothing: it had no
 /// entries when the link was made, and reading it as unbounded would fail the digest on an honest host.
@@ -125,4 +138,27 @@ export async function unfold(v, dir) {
   const got = await sha256hex(bytes);
   if (got !== m[1]) throw new Error(`refused ${url}: it hashes to ${got.slice(0, 12)}…, not the ${m[1].slice(0, 12)}… the link names, so it has changed since the link was made`);
   return new TextDecoder().decode(bytes);
+}
+
+const VIEW = /CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([A-Za-z0-9_]+)"?\s+AS\b/gi;
+
+/// The view statements `sql` reaches, directly or through other views, in their files' order.
+export function viewsFor(files, sql) {
+  const stmts = [];
+  for (const f of files) {
+    const heads = [...f.text.matchAll(VIEW)];
+    heads.forEach((m, i) => stmts.push({ name: m[1], text: f.text.slice(m.index, heads[i + 1]?.index ?? f.text.length).trim() }));
+  }
+  const names = new Set(stmts.map((s) => s.name));
+  const uses = (text) => [...names].filter((n) => new RegExp(`(^|[^A-Za-z0-9_])"?${n}"?([^A-Za-z0-9_]|$)`).test(text.replace(/--[^\n]*/g, "")));
+  const want = new Set();
+  const visit = (text, self) => {
+    for (const n of uses(text)) {
+      if (n === self || want.has(n)) continue;
+      want.add(n);
+      visit(stmts.find((s) => s.name === n).text.replace(VIEW, ""), n);
+    }
+  };
+  visit(sql, null);
+  return stmts.filter((s) => want.has(s.name)).map((s) => s.text).join("\n\n");
 }

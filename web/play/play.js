@@ -2,7 +2,7 @@
 // a worker (worker.js), so the page stays responsive and Cancel can stop a statement outright.
 import { draw, stat } from "./chart.js";
 import { explainRefusal, ANSWER_MB } from "./budget.js";
-import { parseFragment, formatFragment, deflate, unfold, decodeCuts } from "./postcard.js";
+import { parseFragment, formatFragment, deflate, inflate, unfold, decodeCuts, encodeCuts, viewsFor, sha256hex, LONG } from "./postcard.js";
 import { CHAINS } from "./chains.js";
 
 const $ = (id) => document.getElementById(id);
@@ -21,6 +21,12 @@ document.head.append(Object.assign(document.createElement("style"), { textConten
   .pg-none { color: var(--faint); font-size: 0.82rem; padding: 5px 8px; }
   .pg-cuts { margin-top: 4px; } .pg-cuts summary { cursor: pointer; }
   .pg-cuts ul { margin: 4px 0; padding-left: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; }
+  .pg-base { flex: 0 1 26rem; min-width: 12rem; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  .pg-card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 8px 12px; margin-bottom: 8px; font-size: 0.85rem; color: var(--faint); }
+  .pg-card p { margin: 4px 0; }
+  .pg-row { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+  .pg-row input { flex: 1; min-width: 0; font: 0.8rem ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: var(--code); border: 0; border-radius: 5px; padding: 5px 8px; }
+  .pg-card a { color: var(--accent); }
   @keyframes pg-pulse { 50% { opacity: 0.4; } }
   @media (prefers-reduced-motion: reduce) {
     .pg-fill, .pg-fill.pg-indef, .pg-skel { animation: none; transition: none; }
@@ -162,6 +168,7 @@ async function openNest(l, autorun = true) {
   skeleton();
   pinShown(null);
   pickerShows(l);
+  cardBox.hidden = true;
   loading("reading the link…");
   nest = await sourceOf(l);
   const then = await unfold(l.q, nest.base);
@@ -484,6 +491,88 @@ function csv() {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+// RFC-0068 §6: open any published directory by its URL, and make a postcard of what is open. Both are
+// built here rather than in index.html, because the site's /play page carries its own markup.
+const baseField = Object.assign(document.createElement("input"), { type: "url", className: "pg-base", spellcheck: false, placeholder: "or a published nest's URL, ending in its data identity" });
+baseField.setAttribute("aria-label", "URL of a published nest");
+const baseOpen = Object.assign(document.createElement("button"), { className: "quiet", textContent: "Open" });
+$("nest").after(baseField, baseOpen);
+function openBase() {
+  let u;
+  try { u = new URL(baseField.value.trim()); } catch { status("That is not a URL.", true); return; }
+  // A /play link or a postcard pasted here opens as it would from the address bar.
+  if (u.hash.length > 1) { location.hash = u.hash; return; }
+  const parts = u.pathname.replace(/\/+$/, "").split("/");
+  const d = parts.pop();
+  if (!/^[0-9a-f]{64}$/.test(d)) { status("Paste the URL of the published directory, the one holding publish.json and manifest.json: it ends in the nest's data identity, 64 hex digits.", true); return; }
+  const m = `${u.origin}${parts.join("/")}`;
+  const curated = m === index.base && index.nests.find((n) => n.dataset === d);
+  location.hash = formatFragment(curated ? { kind: "nest", nest: curated.nest } : { kind: "base", m, d });
+}
+baseOpen.addEventListener("click", openBase);
+baseField.addEventListener("keydown", (e) => { if (e.key === "Enter") openBase(); });
+
+const copyButton = Object.assign(document.createElement("button"), { className: "quiet", textContent: "Copy postcard", title: "A link to this query over what the nest has sealed, checked when it is opened" });
+$("cancel").after(copyButton);
+const cardBox = Object.assign(document.createElement("div"), { className: "pg-card", hidden: true });
+$("status").before(cardBox);
+
+/// A row holding one link, with a button that copies it.
+function linkRow(url) {
+  const field = Object.assign(document.createElement("input"), { readOnly: true, value: url });
+  const copy = Object.assign(document.createElement("button"), { className: "quiet", textContent: "Copy" });
+  copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(url); copy.textContent = "Copied"; }
+    catch { field.select(); copy.textContent = "Selected: copy it"; }
+  });
+  const row = Object.assign(document.createElement("div"), { className: "pg-row" });
+  row.append(field, copy);
+  return row;
+}
+const para = (...parts) => { const p = document.createElement("p"); p.append(...parts); return p; };
+
+/// The postcard of the query in the box: the link, and a short form for a long one.
+async function makePostcard() {
+  if (!opened?.views || running) return;
+  const sql = $("sql").value;
+  let pin;
+  try { pin = await call("pin"); } catch (e) { status(`no postcard: ${message(e)}`, true); return; }
+  const wText = link.kind === "postcard" ? (link.w && !link.w.startsWith("sha256:") ? await inflate(link.w) : null) : viewsFor(nest.views, sql) || null;
+  const card = { kind: "postcard", m: link.m ?? null, d: nest.dataset, c: await encodeCuts(pin.cuts), h: pin.digest, w: wText ? await deflate(wText) : link.w ?? null, q: sql ? await deflate(sql) : null };
+  const at = `${location.origin}${location.pathname}#`;
+  const full = at + formatFragment(card);
+  const where = host(nest.base);
+  cardBox.replaceChildren(
+    para(`A postcard of this query over what ${where} had sealed through block ${pin.through.toLocaleString()}${wText ? `, with the ${[...wText.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?VIEW/gi)].length} views it reaches` : ""}: ${full.length.toLocaleString()} characters. Whoever opens it gets this answer or a page that says why not.`),
+    linkRow(full),
+  );
+  if (!nest.pin) cardBox.append(para("This tab may also be answering from rows past that block, from the nest's provisional tails or the live tail; the postcard answers from the sealed segments only. ", Object.assign(document.createElement("a"), { href: full, textContent: "Open it", target: "_blank", rel: "noopener" }), " to see what its recipient sees."));
+  const out = { full, short: null, files: [] };
+  if (full.length > LONG) {
+    if (!card.m) cardBox.append(para(`That is long for a chat: Discord takes 2,000 characters. A short form keeps the SQL in files beside the nest, which needs a host you control, so a postcard of a nest on our mirror has none.`));
+    else {
+      const short = { ...card };
+      for (const [k, text] of [["w", wText], ["q", sql]]) {
+        if (!text || short[k].length < 200) continue;
+        const name = await sha256hex(new TextEncoder().encode(text));
+        short[k] = `sha256:${name}`;
+        out.files.push({ name: `${name}.sql`, text });
+      }
+      out.short = at + formatFragment(short);
+      cardBox.append(
+        para(`That is long for a chat: Discord takes 2,000 characters. This short form is ${out.short.length.toLocaleString()} characters and reads its SQL from ${card.m}/${card.d}/queries/, so put ${out.files.length === 1 ? "this file" : "these files"} there first. The tab refuses a file that does not hash to its name.`),
+        linkRow(out.short),
+        para(...out.files.flatMap((f, i) => [i ? " " : "", Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([f.text], { type: "application/sql" })), download: f.name, textContent: f.name })])),
+      );
+    }
+  }
+  cardBox.hidden = false;
+  postcard.card = out;
+  try { await navigator.clipboard.writeText(full); copyButton.textContent = "Copied postcard"; setTimeout(() => (copyButton.textContent = "Copy postcard"), 2000); }
+  catch { /* the link is in the box to copy by hand */ }
+}
+copyButton.addEventListener("click", makePostcard);
 
 $("nest").replaceChildren(...index.nests.map((n, i) => Object.assign(document.createElement("option"), { value: i, textContent: n.nest })));
 $("nest").addEventListener("change", (e) => { if (e.target.value !== "link") location.hash = formatFragment({ kind: "nest", nest: index.nests[+e.target.value].nest }); });
