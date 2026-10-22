@@ -2,7 +2,7 @@
 // a worker (worker.js), so the page stays responsive and Cancel can stop a statement outright.
 import { draw, stat } from "./chart.js";
 import { explainRefusal, ANSWER_MB } from "./budget.js";
-import { parseFragment, formatFragment, deflate, unfold } from "./postcard.js";
+import { parseFragment, formatFragment, deflate, unfold, decodeCuts } from "./postcard.js";
 import { CHAINS } from "./chains.js";
 
 const $ = (id) => document.getElementById(id);
@@ -149,8 +149,9 @@ async function sourceOf(l) {
   }
   const base = `${l.m ?? index.base}/${l.d}`;
   const curated = l.m ? null : index.nests.find((x) => x.dataset === l.d);
+  const pin = l.kind === "postcard" ? { cuts: await decodeCuts(l.c), digest: l.h } : null;
   const views = l.w ? [{ path: "the link", text: await unfold(l.w, base) }] : [];
-  return { nest: curated?.nest ?? `${l.d.slice(0, 12)}… on ${host(base)}`, dataset: l.d, base, views, pin: l.kind === "postcard" ? { cuts: l.c, digest: l.h } : null };
+  return { nest: curated?.nest ?? `${l.d.slice(0, 12)}… on ${host(base)}`, dataset: l.d, base, views, pin };
 }
 
 let nest;

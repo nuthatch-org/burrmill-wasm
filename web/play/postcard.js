@@ -22,12 +22,22 @@ export function formatCuts(cuts) {
 }
 export function parseCuts(s) {
   const cuts = {};
+  if (s === "") return cuts;
   for (const part of s.split(",")) {
     const m = /^([A-Za-z0-9_]+):(\d+)$/.exec(part);
-    if (!m) throw new Error(`the link's cut "${part}" is not table:block`);
+    if (!m) throw new Error(`this postcard's cut list is damaged: "${part.slice(0, 40)}" is not table:block`);
     cuts[m[1]] = Number(m[2]);
   }
   return cuts;
+}
+
+// The cut list travels deflated: a wide nest's 75 cuts are 2,914 characters plain and 1,159 packed.
+export const encodeCuts = (cuts) => deflate(formatCuts(cuts));
+export async function decodeCuts(c) {
+  let text;
+  try { text = await inflate(c); }
+  catch { throw new Error("this postcard's cut list is damaged: it does not unpack, so the link was most likely cut short or altered when it was copied"); }
+  return parseCuts(text);
 }
 
 const sealed = (entries) => (entries ?? []).filter((e) => !e.provisional);
@@ -62,7 +72,8 @@ export async function pinDigest(schemaBytes, tables) {
 }
 
 /// What the fragment holds. `kind` is "postcard" (pinned), "base" (a published directory, unpinned) or
-/// "nest" (a curated nest, unpinned). `q` and `w` are left encoded: deflated, or `sha256:<hex>`.
+/// "nest" (a curated nest, unpinned). `c`, `q` and `w` are left encoded: deflated, or for `q` and `w`
+/// `sha256:<hex>`.
 export function parseFragment(hash) {
   const f = new URLSearchParams(hash.replace(/^#/, ""));
   const get = (k) => f.get(k) || null;
@@ -72,7 +83,8 @@ export function parseFragment(hash) {
     for (const k of ["d", "c", "h"]) if (!get(k)) throw new Error(`this postcard has no "${k}": it was cut short when it was copied`);
     if (!/^[0-9a-f]{64}$/.test(get("d"))) throw new Error("this postcard's data identity is not 64 hex digits");
     if (!/^[A-Za-z0-9_-]{43}$/.test(get("h"))) throw new Error("this postcard's digest is not 43 base64url characters");
-    return { ...out, kind: "postcard", m: base(get("m")), d: get("d"), c: parseCuts(get("c")), h: get("h") };
+    if (!/^[A-Za-z0-9_-]+$/.test(get("c"))) throw new Error("this postcard's cut list is damaged: it is not base64url");
+    return { ...out, kind: "postcard", m: base(get("m")), d: get("d"), c: get("c"), h: get("h") };
   }
   if (get("m") && get("d")) {
     if (!/^[0-9a-f]{64}$/.test(get("d"))) throw new Error("the link's data identity is not 64 hex digits");
@@ -92,7 +104,7 @@ export function formatFragment(link) {
   const parts = [];
   const put = (k, v) => { if (v !== null && v !== undefined && v !== "") parts.push(`${k}=${k === "m" ? encodeURIComponent(v) : v}`); };
   if (link.kind === "postcard") {
-    put("v", "1"); put("m", link.m); put("d", link.d); put("c", formatCuts(link.c)); put("h", link.h);
+    put("v", "1"); put("m", link.m); put("d", link.d); put("c", link.c); put("h", link.h);
   } else if (link.kind === "base") {
     put("m", link.m); put("d", link.d);
   } else put("nest", link.nest);
