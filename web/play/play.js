@@ -2,6 +2,8 @@
 // a worker (worker.js), so the page stays responsive and Cancel can stop a statement outright.
 import { draw, stat } from "./chart.js";
 import { explainRefusal, ANSWER_MB } from "./budget.js";
+import { parseFragment, formatFragment, deflate, unfold, decodeCuts } from "./postcard.js";
+import { CHAINS } from "./chains.js";
 
 const $ = (id) => document.getElementById(id);
 const SHOWN = 500;
@@ -17,6 +19,8 @@ document.head.append(Object.assign(document.createElement("style"), { textConten
   .pg-skel { height: 1.7em; margin: 1px 0; border-radius: 5px; background: var(--code); animation: pg-pulse 1.4s ease-in-out infinite; }
   .pg-skel:nth-child(3n + 2) { width: 80%; } .pg-skel:nth-child(3n) { width: 62%; }
   .pg-none { color: var(--faint); font-size: 0.82rem; padding: 5px 8px; }
+  .pg-cuts { margin-top: 4px; } .pg-cuts summary { cursor: pointer; }
+  .pg-cuts ul { margin: 4px 0; padding-left: 18px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; }
   @keyframes pg-pulse { 50% { opacity: 0.4; } }
   @media (prefers-reduced-motion: reduce) {
     .pg-fill, .pg-fill.pg-indef, .pg-skel { animation: none; transition: none; }
@@ -49,6 +53,9 @@ function skeleton() {
 
 function status(s, err = false) { $("status").textContent = s; $("status").classList.toggle("err", err); }
 const message = (e) => String(e?.message ?? e);
+// What is open and whether it opened, for the scripted gates that drive this page.
+const postcard = { state: "opening", message: "" };
+window.__postcard = postcard;
 
 skeleton();
 loading("loading the list of nests…");
@@ -65,7 +72,7 @@ function stageText({ name, loaded, total, tables }) {
     case "download": return [total ? `downloading the engine: ${mb(loaded)} of ${mb(total)} MB unpacked` : `downloading the engine: ${mb(loaded)} MB`, total ? loaded / total : null];
     case "compile": return ["compiling the engine…", null];
     case "engine": return [`engine ready; opening ${of}…`, null];
-    case "manifest": return [`reading ${of}'s manifest from the mirror…`, null];
+    case "manifest": return [`reading ${of}'s manifest from ${nest?.base ? host(nest.base) : "the mirror"}…`, null];
     case "seed": return [`fetching ${of}'s newest rows, ${tables} table tail${tables === 1 ? "" : "s"}, from the mirror…`, null];
     default: return null;
   }
@@ -129,14 +136,39 @@ function viewSource(nest, view) {
   return null;
 }
 
+// What the address bar's fragment names: a curated nest, a published directory, or a postcard pinning
+// one. The fragment stays in the browser, so the query in it never reaches a server.
+let link;
+const host = (base) => new URL(base).host;
+
+/// The nest `link` names, with the views it runs over: the link's own when it carries them.
+async function sourceOf(l) {
+  if (l.kind === "nest") {
+    const n = index.nests.find((x) => x.nest === l.nest) ?? index.nests.find((x) => x.nest === "defi-pulse-nest") ?? index.nests[0];
+    return { ...n, base: `${index.base}/${n.dataset}` };
+  }
+  const base = `${l.m ?? index.base}/${l.d}`;
+  const curated = l.m ? null : index.nests.find((x) => x.dataset === l.d);
+  const pin = l.kind === "postcard" ? { cuts: await decodeCuts(l.c), digest: l.h } : null;
+  const views = l.w ? [{ path: "the link", text: await unfold(l.w, base) }] : [];
+  return { nest: curated?.nest ?? `${l.d.slice(0, 12)}… on ${host(base)}`, dataset: l.d, base, views, pin };
+}
+
 let nest;
 let opened;
-async function openNest(i, then) {
-  nest = index.nests[i];
+async function openNest(l, autorun = true) {
+  link = l;
+  nest = { nest: l.kind === "nest" ? l.nest ?? "the nest" : "the postcard", views: [] };
   skeleton();
+  pinShown(null);
+  pickerShows(l);
+  loading("reading the link…");
+  nest = await sourceOf(l);
+  const then = await unfold(l.q, nest.base);
   loading(`starting the engine for ${nest.nest}…`);
   startWorker();
-  opened = await call("open", { base: `${index.base}/${nest.dataset}`, views: nest.views.map((v) => v.text), decoder: nest.decoder && new URL(nest.decoder, location.href).href });
+  opened = await call("open", { base: nest.base, views: nest.views.map((v) => v.text), decoder: !nest.pin && nest.decoder ? new URL(nest.decoder, location.href).href : undefined, pin: nest.pin });
+  if (opened.pin && opened.pin.state !== "open") return refusePin(opened.pin);
   $("views").removeAttribute("aria-busy");
   $("views").replaceChildren(...opened.views.map((v) => {
     const b = Object.assign(document.createElement("button"), { textContent: v, className: "view" });
@@ -144,13 +176,15 @@ async function openNest(i, then) {
     b.addEventListener("mouseenter", () => showSource(v));
     return b;
   }));
-  if (!opened.views.length) $("views").replaceChildren(Object.assign(document.createElement("div"), { className: "pg-none", textContent: "this nest publishes no views" }));
+  if (!opened.views.length) $("views").replaceChildren(Object.assign(document.createElement("div"), { className: "pg-none", textContent: link.kind === "nest" ? "this nest publishes no views" : "the link carries no views" }));
   $("about").replaceChildren(
     `${opened.tables} tables, ${opened.segments.toLocaleString()} segments, ${opened.rows.toLocaleString()} rows sealed, dataset `,
     Object.assign(document.createElement("code"), { textContent: `${nest.dataset.slice(0, 12)}…` }),
-    ", views from ",
-    Object.assign(document.createElement("a"), { href: `${nest.repo}/tree/${nest.commit}/views`, textContent: nest.repo.replace("https://github.com/", ""), target: "_blank", rel: "noopener" }),
-    ` at ${nest.commit.slice(0, 7)}`,
+    ...(link.kind === "nest" ? [
+      ", views from ",
+      Object.assign(document.createElement("a"), { href: `${nest.repo}/tree/${nest.commit}/views`, textContent: nest.repo.replace("https://github.com/", ""), target: "_blank", rel: "noopener" }),
+      ` at ${nest.commit.slice(0, 7)}`,
+    ] : [`, from ${host(nest.base)}${nest.views.length ? ", views from the link" : ""}`]),
   );
   const examples = [
     ...opened.views.slice(0, 3).map((v) => `SELECT * FROM "${v}" LIMIT 100`),
@@ -161,25 +195,100 @@ async function openNest(i, then) {
     b.addEventListener("click", () => { $("sql").value = q; run(); });
     return b;
   }));
-  if (!opened.tail.refused) loading(`${nest.nest} is open; fetching the blocks past the mirror before the first query…`);
-  await refreshTail();
-  if (then) { $("sql").value = then; run(); }
+  if (nest.pin) pinShown(opened);
   else {
-    if (opened.views[0]) { $("sql").value = `SELECT * FROM "${opened.views[0]}"`; showSource(opened.views[0]); run(); }
+    if (!opened.tail.refused) loading(`${nest.nest} is open; fetching the blocks past the mirror before the first query…`);
+    await refreshTail();
+  }
+  postcard.state = "open";
+  if (then) { $("sql").value = then; autorun ? run() : status(`${nest.nest} ready.`); }
+  else {
+    if (opened.views[0]) { $("sql").value = `SELECT * FROM "${opened.views[0]}"`; showSource(opened.views[0]); if (autorun) run(); }
     else status(`${nest.nest} ready.`);
   }
 }
 
-/// Opens a nest and, unless a later open has replaced it, says on the page why it did not.
+/// Opens what the address bar names and, unless a later open has replaced it, says on the page why it
+/// did not.
 let opening = 0;
-function openShown(i, then) {
+function openShown(autorun = true) {
   const mine = ++opening;
-  return openNest(i, then).catch((e) => {
-    if (mine !== opening) return;
+  postcard.state = "opening";
+  let l;
+  try { l = parseFragment(location.hash); }
+  catch (e) { failed(e); return Promise.resolve(); }
+  return openNest(l, autorun).catch((e) => { if (mine === opening) failed(e); });
+  function failed(e) {
+    postcard.state = "error";
     status(`${nest?.nest ?? "the nest"} did not open: ${message(e)}`, true);
     $("views").removeAttribute("aria-busy");
     $("views").replaceChildren(Object.assign(document.createElement("div"), { className: "pg-none", textContent: "no views: the nest did not open" }));
-  });
+  }
+}
+
+/// The picker stays the curated list; a link to anything else shows as one more entry above it.
+function pickerShows(l) {
+  const own = $("nest").querySelector("option[data-link]");
+  if (l.kind === "nest") {
+    own?.remove();
+    $("nest").value = String(Math.max(0, index.nests.findIndex((n) => n.nest === (l.nest ?? "defi-pulse-nest"))));
+    return;
+  }
+  const o = own ?? Object.assign(document.createElement("option"), { value: "link" });
+  o.dataset.link = "";
+  o.textContent = `${l.kind === "postcard" ? "postcard" : "link"}: ${host(`${l.m ?? index.base}/x`)}`;
+  if (!own) $("nest").prepend(o);
+  $("nest").value = "link";
+}
+
+/// Drop the pin: the same nest, unpinned, live tail and all where the page has one for it.
+function followHead() {
+  const curated = !link.m && index.nests.find((n) => n.dataset === link.d);
+  const next = curated ? { kind: "nest", nest: curated.nest, q: link.q } : { kind: "base", m: link.m, d: link.d, w: link.w, q: link.q };
+  location.hash = formatFragment(next);
+}
+const followButton = () => {
+  const b = Object.assign(document.createElement("button"), { className: "quiet", textContent: "Follow to the head", title: "Drop the pin and open what the host holds now" });
+  b.addEventListener("click", followHead);
+  return b;
+};
+
+/// RFC-0068 §7: what a postcard pinned, said beside the answer.
+const tailControls = (shown) => { for (const id of ["tail-refresh", "tail-receipts", "rpc"]) if ($(id)) $(id).hidden = !shown; };
+function pinShown(o) {
+  tailControls(!o);
+  if (!o) return;
+  const cuts = Object.entries(nest.pin.cuts).sort(([a], [b]) => a.localeCompare(b));
+  const chain = o.pin.chain_id ? Object.values(CHAINS).find((c) => c.id === o.pin.chain_id)?.label ?? `chain ${o.pin.chain_id}` : "a chain its host does not name";
+  const details = Object.assign(document.createElement("details"), { className: "pg-cuts" });
+  const ul = document.createElement("ul");
+  ul.append(...cuts.map(([t, b]) => Object.assign(document.createElement("li"), { textContent: `${t}: block ${b.toLocaleString()}` })));
+  details.append(Object.assign(document.createElement("summary"), { textContent: `each table's cut (${cuts.length} of ${o.tables} tables; the others had nothing sealed when the link was made, so they answer nothing)` }), ul);
+  $("tail-note")?.replaceChildren(
+    `Pinned by a postcard: on ${chain}, these rows are what nest ${nest.dataset.slice(0, 12)}… had sealed through block ${opened.sealed_through.toLocaleString()}, each table cut where the link says; nothing later is included. `
+    + `${o.pin.host} served the catalogue and schema.json, which hash to the link's digest, and every segment is checked against its address as it arrives. `,
+    followButton(),
+    details,
+  );
+}
+
+/// The host does not hold what the postcard pins. Said plainly, and never answered from.
+function refusePin(p) {
+  postcard.state = p.state;
+  tailControls(false);
+  $("views").removeAttribute("aria-busy");
+  $("views").replaceChildren(Object.assign(document.createElement("div"), { className: "pg-none", textContent: "no views: the postcard was not answered" }));
+  const list = (ts) => ts.slice(0, 3).join(", ") + (ts.length > 3 ? ` and ${ts.length - 3} more` : "");
+  const text = {
+    behind: () => `${p.host} has not caught up with this postcard: its catalogue ends before the link's cut for ${list(p.tables)}. A host that caches its catalogue lags a fresh link (GitHub Pages holds it ten minutes, jsDelivr up to twelve hours). Try again later.`,
+    moved: () => `${p.host} no longer holds the segments this postcard pins: for ${list(p.tables)}, no segment ends at the link's cut any more, so the nest has been sealed again with other boundaries since the link was made, most likely re-indexed from scratch. This link cannot be answered from this host.`,
+    differs: () => `${p.host} does not hold the segments this postcard pins: under the link's cut, its catalogue and schema.json hash to ${p.digest.slice(0, 12)}…, and the link says ${nest.pin.digest.slice(0, 12)}…. Either the host changed what it published or the nest was published again from a fresh index. This link cannot be answered from this host.`,
+  }[p.state]();
+  status(text, true);
+  postcard.message = text;
+  const retry = Object.assign(document.createElement("button"), { className: "quiet", textContent: "Try again" });
+  retry.addEventListener("click", () => openShown());
+  $("tail-note")?.replaceChildren(...(p.state === "behind" ? [retry, " "] : []), followButton());
 }
 
 // RFC-0065 S3: the blocks past the mirror's cut, fetched from an RPC and decoded here. Only a page
@@ -250,15 +359,13 @@ let running = false;
 // The bench digests whole answers, so it alone runs a statement past the page's answer cap.
 let whole = false;
 async function run() {
-  if (running) return;
+  if (running || !opened?.views) return;
   running = true;
   $("run").disabled = true;
   $("cancel").hidden = false;
   const sql = $("sql").value;
-  const url = new URL(location.href);
-  url.searchParams.set("nest", nest.nest);
-  url.searchParams.set("q", sql);
-  history.replaceState(null, "", url);
+  link = { ...link, q: sql ? await deflate(sql) : null };
+  history.replaceState(null, "", `#${formatFragment(link)}`);
   const started = performance.now();
   const tick = setInterval(() => status(`running… ${duration(performance.now() - started)}`), 200);
   try {
@@ -372,16 +479,16 @@ function csv() {
   const text = [cols.join(","), ...rows.map((r) => cols.map((c) => cell(r[c])).join(","))].join("\n");
   const a = Object.assign(document.createElement("a"), {
     href: URL.createObjectURL(new Blob([text], { type: "text/csv" })),
-    download: `${nest.nest}.csv`,
+    download: `${nest.nest.replace(/[^A-Za-z0-9_-]+/g, "-")}.csv`,
   });
   a.click();
   URL.revokeObjectURL(a.href);
 }
 
 $("nest").replaceChildren(...index.nests.map((n, i) => Object.assign(document.createElement("option"), { value: i, textContent: n.nest })));
-$("nest").addEventListener("change", (e) => openShown(+e.target.value));
+$("nest").addEventListener("change", (e) => { if (e.target.value !== "link") location.hash = formatFragment({ kind: "nest", nest: index.nests[+e.target.value].nest }); });
 $("run").addEventListener("click", run);
-$("cancel").addEventListener("click", () => openShown(+$("nest").value));
+$("cancel").addEventListener("click", () => openShown(false));
 $("csv").addEventListener("click", csv);
 $("sql").addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run(); });
 $("tail-receipts")?.addEventListener("click", async () => {
@@ -439,6 +546,17 @@ async function digest(lines) {
   return [...hash.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/// One statement's whole answer and its digest, or why there is none.
+postcard.answer = async (sql) => {
+  while (running) await new Promise((r) => setTimeout(r, 100));
+  if (postcard.state !== "open") return { error: `nothing is open: ${postcard.state}` };
+  try {
+    const r = await call("query", { sql, whole: true });
+    const lines = r.text.split("\n").filter((l) => l.length);
+    return { rows: lines.length, digest: await digest(lines), fetched: r.fetched, cached: r.cached };
+  } catch (e) { return { error: message(e) }; }
+};
+
 /// Every view of the open nest, one after another, for measuring: cold on an empty cache, then
 /// again from this browser's cache in a fresh worker.
 window.__resources = () => call("resources");
@@ -448,7 +566,7 @@ window.__bench = async () => {
   const out = [];
   for (const pass of ["cold", "opfs"]) {
     if (pass === "cold") await call("clearCache").catch(() => {});
-    await openNest(+$("nest").value);
+    await openNest(link);
     for (const v of opened.views) {
       $("sql").value = `SELECT * FROM "${v}"`;
       await run();
@@ -460,7 +578,13 @@ window.__bench = async () => {
   return out;
 };
 
-const params = new URLSearchParams(location.search);
-let start = Math.max(0, index.nests.findIndex((n) => n.nest === (params.get("nest") ?? "defi-pulse-nest")));
-$("nest").value = start;
-openShown(start, params.get("q"));
+// Links made before RFC-0068 carried the query in the query string; it moves to the fragment.
+const legacy = new URLSearchParams(location.search);
+if (legacy.has("nest") || legacy.has("q")) {
+  const q = legacy.get("q");
+  const frag = location.hash.length > 1 ? location.hash : `#${formatFragment({ kind: "nest", nest: legacy.get("nest"), q: q ? await deflate(q) : null })}`;
+  history.replaceState(null, "", `${location.pathname}${frag}`);
+}
+// A link pasted into this tab changes only the fragment; the page's own rewrites do not fire this.
+addEventListener("hashchange", () => openShown());
+openShown();
