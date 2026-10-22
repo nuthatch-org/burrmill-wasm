@@ -253,8 +253,9 @@ const followButton = () => {
 };
 
 /// RFC-0068 §7: what a postcard pinned, said beside the answer.
+const tailControls = (shown) => { for (const id of ["tail-refresh", "tail-receipts", "rpc"]) if ($(id)) $(id).hidden = !shown; };
 function pinShown(o) {
-  for (const id of ["tail-refresh", "tail-receipts", "rpc"]) if ($(id)) $(id).hidden = !!o;
+  tailControls(!o);
   if (!o) return;
   const cuts = Object.entries(nest.pin.cuts).sort(([a], [b]) => a.localeCompare(b));
   const chain = o.pin.chain_id ? Object.values(CHAINS).find((c) => c.id === o.pin.chain_id)?.label ?? `chain ${o.pin.chain_id}` : "a chain its host does not name";
@@ -273,6 +274,7 @@ function pinShown(o) {
 /// The host does not hold what the postcard pins. Said plainly, and never answered from.
 function refusePin(p) {
   postcard.state = p.state;
+  tailControls(false);
   $("views").removeAttribute("aria-busy");
   $("views").replaceChildren(Object.assign(document.createElement("div"), { className: "pg-none", textContent: "no views: the postcard was not answered" }));
   const list = (ts) => ts.slice(0, 3).join(", ") + (ts.length > 3 ? ` and ${ts.length - 3} more` : "");
