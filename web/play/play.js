@@ -546,6 +546,7 @@ async function digest(lines) {
 /// One statement's whole answer and its digest, or why there is none.
 postcard.answer = async (sql) => {
   while (running) await new Promise((r) => setTimeout(r, 100));
+  if (postcard.state !== "open") return { error: `nothing is open: ${postcard.state}` };
   try {
     const r = await call("query", { sql, whole: true });
     const lines = r.text.split("\n").filter((l) => l.length);
@@ -578,7 +579,8 @@ window.__bench = async () => {
 const legacy = new URLSearchParams(location.search);
 if (legacy.has("nest") || legacy.has("q")) {
   const q = legacy.get("q");
-  history.replaceState(null, "", `${location.pathname}#${formatFragment({ kind: "nest", nest: legacy.get("nest"), q: q ? await deflate(q) : null })}`);
+  const frag = location.hash.length > 1 ? location.hash : `#${formatFragment({ kind: "nest", nest: legacy.get("nest"), q: q ? await deflate(q) : null })}`;
+  history.replaceState(null, "", `${location.pathname}${frag}`);
 }
 // A link pasted into this tab changes only the fragment; the page's own rewrites do not fire this.
 addEventListener("hashchange", () => openShown());
