@@ -17,6 +17,11 @@ mkdir -p dist/play/helios && cp "$helios/package/dist/lib.mjs" "$helios/package/
 curl -sf https://lodestar-mainnet.chainsafe.io/eth/v1/beacon/headers/finalized |
   jq -c --arg at "$(($(date +%s) * 1000))" '{root: .data.root, slot: (.data.header.message.slot | tonumber), at: ($at | tonumber)}' > dist/play/checkpoint.json
 cp -R web/play/nests dist/play/nests
+# Time-lapse (RFC-0070 S2): its page lives here, its engine is built in nuthatch by tools/rfc-0070-s2/build.sh.
+tl_pkg=${TIMELAPSE_PKG:-../nuthatch/tools/rfc-0070-s2/web/pkg}
+[ -f "$tl_pkg/rfc_0070_s1_bg.wasm" ] || { echo "no time-lapse engine at $tl_pkg: run nuthatch's tools/rfc-0070-s2/build.sh, or set TIMELAPSE_PKG" >&2; exit 1; }
+cp -R web/play/timelapse dist/play/timelapse
+mkdir -p dist/play/timelapse/pkg && cp "$tl_pkg/rfc_0070_s1.js" "$tl_pkg/rfc_0070_s1_bg.wasm" dist/play/timelapse/pkg/
 cp pkg/web/burrmill_wasm.js pkg/web/burrmill_wasm_bg.wasm dist/play/pkg/
 # The worker shows download progress against the unpacked size: a brotli response has no Content-Length.
 bytes=$(wc -c < pkg/web/burrmill_wasm_bg.wasm | tr -d ' ')

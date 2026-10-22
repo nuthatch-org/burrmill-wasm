@@ -2,6 +2,7 @@
   "cleanUrls": false,
   "headers": [
     { "source": "/pkg/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, no-cache" }] },
+    { "source": "/timelapse/pkg/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, no-cache" }] },
     { "source": "/(.*)", "headers": [{ "key": "X-Content-Type-Options", "value": "nosniff" }] }
   ]
 }
