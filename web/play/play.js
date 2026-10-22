@@ -543,8 +543,9 @@ async function makePostcard() {
   const at = `${location.origin}${location.pathname}#`;
   const full = at + formatFragment(card);
   const where = host(nest.base);
+  const views = wText ? [...wText.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?VIEW/gi)].length : 0;
   cardBox.replaceChildren(
-    para(`A postcard of this query over what ${where} had sealed through block ${pin.through.toLocaleString()}${wText ? `, with the ${[...wText.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?VIEW/gi)].length} views it reaches` : ""}: ${full.length.toLocaleString()} characters. Whoever opens it gets this answer or a page that says why not.`),
+    para(`A postcard of this query over what ${where} had sealed through block ${pin.through.toLocaleString()}${views ? `, carrying the ${views === 1 ? "view" : `${views} views`} it reaches` : ""}: ${full.length.toLocaleString()} characters. Whoever opens it gets this answer or a page that says why not.`),
     linkRow(full),
   );
   if (!nest.pin) cardBox.append(para("This tab may also be answering from rows past that block, from the nest's provisional tails or the live tail; the postcard answers from the sealed segments only. ", Object.assign(document.createElement("a"), { href: full, textContent: "Open it", target: "_blank", rel: "noopener" }), " to see what its recipient sees."));
