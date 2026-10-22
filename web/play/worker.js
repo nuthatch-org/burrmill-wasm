@@ -7,6 +7,7 @@ import { fetchTail, headBlock, MARGIN } from "./tail.js";
 import { agreedLogs } from "./finality.js";
 import { verifiedFinalized, verifiedCeiling, checkReceipts } from "./verified.js";
 import { budgetMiB, ANSWER_MB } from "./budget.js";
+import { cutCatalogue, pinDigest } from "./postcard.js";
 
 const CONCURRENCY = 16;
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -46,18 +47,28 @@ function segmentStore(base) {
     if (kept) { counts.cached++; return kept; }
     await acquire();
     try {
-      const r = await fetch(`${base}/${key}`);
-      if (!r.ok) throw new Error(`${key}: HTTP ${r.status}`);
-      const bytes = new Uint8Array(await r.arrayBuffer());
+      // A cold CDN drops the odd fetch under load (RFC-0068 §14), so a failed one is tried once more.
+      const get = async () => { const r = await fetch(`${base}/${key}`); if (!r.ok) throw new Error(`HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); };
+      let bytes;
+      try { bytes = await get(); }
+      catch { try { bytes = await get(); } catch (e) { throw new Error(`segment ${key} from ${new URL(base).host} did not arrive: ${e?.message ?? e}`); } }
       const got = hex(await crypto.subtle.digest("SHA-256", bytes));
-      if (got !== want) throw new Error(`${key}: content is ${got.slice(0, 12)}…, not the address it is stored under`);
+      if (got !== want) throw new Error(`refused segment ${key} from ${new URL(base).host}: its bytes hash to ${got.slice(0, 12)}…, not the address it is stored under`);
       counts.fetched++;
       counts.bytes += bytes.length;
       await opfsPut(want, bytes);
       return bytes;
     } finally { release(); }
   }
-  const whole = (key) => { if (!cache.has(key)) cache.set(key, fetchVerified(key)); return cache.get(key); };
+  // A failure is not kept, so the next statement that reaches the segment fetches it again.
+  const whole = (key) => {
+    if (!cache.has(key)) {
+      const p = fetchVerified(key);
+      cache.set(key, p);
+      p.catch(() => { if (cache.get(key) === p) cache.delete(key); });
+    }
+    return cache.get(key);
+  };
   // Time the engine spends waiting on the store, against the time it spends computing.
   const timed = (f) => async (...a) => {
     const t = performance.now();
@@ -108,9 +119,10 @@ let chainId = null;
 // Past this, the mirror is too far behind for a public RPC to fill the gap in a tab.
 const MAX_TAIL = 50_000;
 
-async function open({ base, views, decoder: decoderUrl }) {
+async function open({ base, views, decoder: decoderUrl, pin }) {
   await ready;
   stage({ name: "manifest" });
+  if (pin) return openPinned({ base, views, pin });
   const [manifestText, schemaText, decoderJson, seed] = await Promise.all([
     fetch(`${base}/manifest.json`, { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`manifest: HTTP ${r.status}`); return r.text(); }),
     fetch(`${base}/schema.json`).then((r) => (r.ok ? r.text() : undefined)),
@@ -149,6 +161,39 @@ async function open({ base, views, decoder: decoderUrl }) {
     rows: segments.reduce((s, x) => s + (x.rows ?? 0), 0) + Object.values(cur.seed?.tails ?? {}).reduce((s, x) => s + (x.rows ?? 0), 0),
     sealed_through: Math.max(0, cur.seed?.complete_through ?? 0, ...Object.values(covered)),
     tail: decoder ? { chain_id: chainId } : { refused },
+  };
+}
+
+/// A postcard (RFC-0068): the host's catalogue cut where the link says, checked against the link's
+/// digest before anything is bound, with no seed tails and no live tail.
+async function openPinned({ base, views, pin }) {
+  const host = new URL(base).host;
+  const [manifestText, schemaBytes, published] = await Promise.all([
+    fetch(`${base}/manifest.json`, { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(`${host} answered HTTP ${r.status} for the nest's catalogue`); return r.text(); }),
+    fetch(`${base}/schema.json`, { cache: "no-cache" }).then(async (r) => { if (!r.ok) throw new Error(`${host} answered HTTP ${r.status} for schema.json, which the postcard pins`); return new Uint8Array(await r.arrayBuffer()); }),
+    fetch(`${base}/publish.json`, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  ]);
+  const cut = cutCatalogue(JSON.parse(manifestText), pin.cuts);
+  if (cut.behind.length) return { pin: { state: "behind", host, tables: cut.behind } };
+  if (cut.moved.length) return { pin: { state: "moved", host, tables: cut.moved } };
+  const digest = await pinDigest(schemaBytes, cut.manifest.tables);
+  if (digest !== pin.digest) return { pin: { state: "differs", host, digest } };
+  decoder?.free();
+  decoder = null;
+  refused = "a postcard shows what the nest had sealed when the link was made";
+  chainId = null;
+  sealing = null;
+  cur = { base, views, manifestText: JSON.stringify(cut.manifest), schemaText: new TextDecoder().decode(schemaBytes), store: segmentStore(base), seed: null, pin: { cuts: pin.cuts, digest } };
+  bind();
+  const segments = Object.values(cut.manifest.tables).flat();
+  return {
+    views: engine.views(),
+    tables: engine.tables().length,
+    segments: segments.length,
+    rows: segments.reduce((s, x) => s + (x.rows ?? 0), 0),
+    sealed_through: Math.max(0, ...Object.values(pin.cuts)),
+    tail: { refused },
+    pin: { state: "open", host, digest, chain_id: published?.chain_id ?? null },
   };
 }
 
@@ -368,7 +413,14 @@ async function receipts({ second, count }) {
 async function query({ sql, whole }) {
   const before = { ...counts };
   const t = performance.now();
-  const { text, more } = whole ? { text: await engine.queryLines(sql), more: false } : await engine.queryUpTo(sql, ANSWER_MB * 1e6);
+  let answer;
+  try { answer = whole ? { text: await engine.queryLines(sql), more: false } : await engine.queryUpTo(sql, ANSWER_MB * 1e6); }
+  catch (e) {
+    // The engine wraps the store's error in its own; the page says the store's, which names the segment.
+    const m = /(refused segment [^\n]*|segment [^\n]* did not arrive[^\n]*)/.exec(String(e?.message ?? e));
+    throw m ? new Error(m[1]) : e;
+  }
+  const { text, more } = answer;
   const ms = performance.now() - t;
   let chart = null;
   try { chart = prepare(text.split("\n").filter((l) => l.length)); }
