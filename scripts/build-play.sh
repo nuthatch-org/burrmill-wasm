@@ -23,12 +23,14 @@ tl_pkg=${TIMELAPSE_PKG:-../nuthatch/tools/rfc-0070-s2/web/pkg}
 cp -R web/play/timelapse dist/play/timelapse
 mkdir -p dist/play/timelapse/pkg && cp "$tl_pkg/rfc_0070_s1.js" "$tl_pkg/rfc_0070_s1_bg.wasm" dist/play/timelapse/pkg/
 # The whole nest in a tab (RFC-0075): its relay, worker and Service Worker are nuthatch's gated files,
-# and its module is what nuthatch's embed/build-tab.sh web pkg-web builds.
+# and its module is the plain one RFC-0077 S2 drives through abi 1: nuthatch's embed/plain/build.sh.
 tab=${NEST_TAB:-../nuthatch/embed}
-[ -f "$tab/pkg-web/nuthatch_embed_bg.wasm" ] || { echo "no tab module at $tab/pkg-web: run nuthatch's embed/build-tab.sh web pkg-web, or set NEST_TAB" >&2; exit 1; }
+module=${NEST_MODULE:-$tab/plain/target/nest.wasm}
+[ -f "$module" ] || { echo "no plain module at $module: run nuthatch's embed/plain/build.sh $module, or set NEST_MODULE" >&2; exit 1; }
 mkdir -p dist/play/live/pkg
-cp web/play/live/live.js "$tab/hosts/browser/page.js" "$tab/hosts/browser/nest-worker.js" "$tab/hosts/browser/sw.js" dist/play/live/
-cp "$tab/pkg-web/nuthatch_embed.js" "$tab/pkg-web/nuthatch_embed_bg.wasm" dist/play/live/pkg/
+cp web/play/live/live.js "$tab/hosts/browser/page.js" "$tab/hosts/browser/nest-worker.js" "$tab/hosts/browser/sw.js" \
+  "$tab/hosts/browser/host.js" "$tab/hosts/browser/opfs.js" dist/play/live/
+cp "$module" dist/play/live/pkg/nest.wasm
 cp pkg/web/burrmill_wasm.js pkg/web/burrmill_wasm_bg.wasm dist/play/pkg/
 # The worker shows download progress against the unpacked size: a brotli response has no Content-Length.
 bytes=$(wc -c < pkg/web/burrmill_wasm_bg.wasm | tr -d ' ')

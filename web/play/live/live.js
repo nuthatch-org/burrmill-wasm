@@ -169,7 +169,7 @@ async function main() {
     swUrl: new URL("sw.js", base).pathname,
     workerUrl: new URL("nest-worker.js", base).pathname,
     open: {
-      pkg: "./pkg/nuthatch_embed.js",
+      module: "./pkg/nest.wasm",
       nid: `live-${Date.now().toString(36)}`, rpc, contract, start, files: FILES,
       memoryCeilingMib: ceiling, pollIntervalSecs: POLL_SECS, keepFollowing: true,
     },
