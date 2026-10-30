@@ -1,5 +1,5 @@
 // RFC-0075: the whole nest in this tab. A dedicated worker runs nuthatch's cursor, hot store, reorg
-// rollback, entities and query routes, built from nuthatch's spike/dbsp-wasm; sw.js answers the node's
+// rollback, entities and query routes, built from nuthatch's embed/; sw.js answers the node's
 // HTTP routes under this page's path, so every request below is a plain fetch on this origin.
 import { startNest } from "./page.js";
 import { budgetMiB, SMALL_MIB } from "../budget.js";
@@ -169,7 +169,7 @@ async function main() {
     swUrl: new URL("sw.js", base).pathname,
     workerUrl: new URL("nest-worker.js", base).pathname,
     open: {
-      pkg: "./pkg/dbsp_wasm_spike.js",
+      pkg: "./pkg/nuthatch_embed.js",
       nid: `live-${Date.now().toString(36)}`, rpc, contract, start, files: FILES,
       memoryCeilingMib: ceiling, pollIntervalSecs: POLL_SECS, keepFollowing: true,
     },
