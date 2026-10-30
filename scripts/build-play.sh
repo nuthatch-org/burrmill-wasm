@@ -22,6 +22,13 @@ tl_pkg=${TIMELAPSE_PKG:-../nuthatch/tools/rfc-0070-s2/web/pkg}
 [ -f "$tl_pkg/rfc_0070_s1_bg.wasm" ] || { echo "no time-lapse engine at $tl_pkg: run nuthatch's tools/rfc-0070-s2/build.sh, or set TIMELAPSE_PKG" >&2; exit 1; }
 cp -R web/play/timelapse dist/play/timelapse
 mkdir -p dist/play/timelapse/pkg && cp "$tl_pkg/rfc_0070_s1.js" "$tl_pkg/rfc_0070_s1_bg.wasm" dist/play/timelapse/pkg/
+# The whole nest in a tab (RFC-0075): its relay, worker and Service Worker are nuthatch's gated files,
+# and its module is what nuthatch's spike/dbsp-wasm/build-tab.sh web pkg-web builds.
+tab=${NEST_TAB:-../nuthatch/spike/dbsp-wasm}
+[ -f "$tab/pkg-web/dbsp_wasm_spike_bg.wasm" ] || { echo "no tab module at $tab/pkg-web: run nuthatch's spike/dbsp-wasm/build-tab.sh web pkg-web, or set NEST_TAB" >&2; exit 1; }
+mkdir -p dist/play/live/pkg
+cp web/play/live/live.js "$tab/web/page.js" "$tab/web/nest-worker.js" "$tab/web/sw.js" dist/play/live/
+cp "$tab/pkg-web/dbsp_wasm_spike.js" "$tab/pkg-web/dbsp_wasm_spike_bg.wasm" dist/play/live/pkg/
 cp pkg/web/burrmill_wasm.js pkg/web/burrmill_wasm_bg.wasm dist/play/pkg/
 # The worker shows download progress against the unpacked size: a brotli response has no Content-Length.
 bytes=$(wc -c < pkg/web/burrmill_wasm_bg.wasm | tr -d ' ')
