@@ -1,0 +1,65 @@
+# yatr - https://github.com/cargopete/yatr
+#
+# No CI here; `ci` is what should pass before a playground deploy. The deploy
+# itself (scripts/deploy-play.sh) is deliberately not a task.
+#
+# cargo must be rustup's, so rust-toolchain.toml takes effect: a Homebrew cargo
+# earlier on PATH builds with the wrong compiler.
+
+[env]
+CARGO_TERM_COLOR = "always"
+
+[settings]
+cache = true
+
+[tasks.fmt]
+desc = "Format the tree"
+run = ["cargo fmt --all"]
+no_cache = true
+
+[tasks.fmt-check]
+desc = "Fail if the tree is unformatted"
+run = ["cargo fmt --all --check"]
+sources = ["**/*.rs"]
+
+[tasks.lint]
+desc = "Clippy on the native build, warnings denied"
+run = ["cargo clippy --all-targets -- -D warnings"]
+sources = ["src/**", "examples/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]
+
+[tasks.test]
+desc = "Native test suite"
+run = ["cargo test"]
+sources = ["src/**", "examples/**", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml"]
+watch = ["**/*.rs"]
+
+# BURRMILL and CLANG (see the script) change the build but not the cache key:
+# run with --force when setting them.
+[tasks.build]
+desc = "wasm module and JS glue into pkg/web and pkg/node"
+run = ["scripts/build.sh"]
+sources = ["src/**", "Cargo.toml", "Cargo.lock", ".cargo/config.toml", "rust-toolchain.toml", "scripts/build.sh"]
+outputs = ["pkg"]
+
+[tasks.check-pkg]
+desc = "Refuse a pkg/web that is stale or missing a name the playground imports"
+depends = ["build"]
+run = ["node scripts/check-pkg.mjs"]
+no_cache = true
+
+# Network (Helios, a beacon checkpoint) and sibling nuthatch builds.
+[tasks.play]
+desc = "Assemble the playground into dist/play (does not deploy)"
+depends = ["build"]
+run = ["scripts/build-play.sh"]
+no_cache = true
+
+[tasks.serve]
+desc = "Local server for web/"
+foreground = true
+run = ["node web/server.mjs"]
+
+[tasks.ci]
+desc = "Before a deploy: fmt-check, lint, test, build, check-pkg"
+depends = ["fmt-check", "lint", "test", "check-pkg"]
+run = []
