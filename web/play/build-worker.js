@@ -66,6 +66,7 @@ onmessage = async ({ data }) => {
       if (indexed) open();
       postMessage({ type: "views", id: data.id });
     } else if (data.type === "query") {
+      if (!nest) throw new Error("Nothing to query yet: the backfill has to finish first.");
       const t0 = performance.now();
       const { text, more } = await nest.queryUpTo(data.sql, ANSWER_MB * 1e6);
       postMessage({ type: "rows", id: data.id, text, more, ms: Math.round(performance.now() - t0) });
