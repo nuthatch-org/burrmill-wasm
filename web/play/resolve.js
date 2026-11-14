@@ -20,6 +20,10 @@ export async function chainId(rpc, fetchFn = fetch) {
   return parseInt(await call(rpc, "eth_chainId", [], fetchFn), 16);
 }
 
+export async function blockNumber(rpc, fetchFn = fetch) {
+  return parseInt(await call(rpc, "eth_blockNumber", [], fetchFn), 16);
+}
+
 // The implementation behind a proxy, in `init`'s order: EIP-1967 and its kin, `implementation()`
 // on the address, then a beacon. Null when the address is not a proxy any of these name.
 export async function implementation(rpc, address, w, fetchFn = fetch) {

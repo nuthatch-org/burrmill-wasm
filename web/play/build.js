@@ -2,7 +2,7 @@
 // the alias and the identity all come from nuthatch's own crates in the wasm module, so the download
 // is the nest a node would scaffold, and `nuthatch dev` reports the NID shown here.
 import init, * as w from "./pkg/burrmill_wasm.js";
-import { chainId, resolveContract } from "./resolve.js";
+import { blockNumber, chainId, resolveContract } from "./resolve.js";
 import { zip } from "./zip.js";
 import { explainRefusal, ANSWER_MB } from "./budget.js";
 import { CHAINS } from "./chains.js";
@@ -170,8 +170,42 @@ $("new-view").onclick = () => {
   refresh();
 };
 
+// A first visit has no young, verified contract to hand, so the status line offers one. Its start block
+// is counted back from the head at the click: a fixed one ages out of what the default RPCs serve.
+const EXAMPLE = { chain: "mainnet", address: "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc", alias: "usdc_weth", back: 600 };
+
+function ready() {
+  status("Ready. Paste an address, or ");
+  const a = Object.assign(document.createElement("a"), {
+    href: "#",
+    textContent: `try the Uniswap v2 USDC/WETH pair over its last ${EXAMPLE.back} blocks`,
+  });
+  a.onclick = (e) => {
+    e.preventDefault();
+    example();
+  };
+  $("status").append(a, ".");
+}
+
+async function example() {
+  try {
+    if ($("chain").value !== EXAMPLE.chain) {
+      $("chain").value = EXAMPLE.chain;
+      $("chain").onchange();
+    }
+    status("Asking the RPC for the head…");
+    const head = await blockNumber($("rpc").value.trim());
+    $("address").value = EXAMPLE.address;
+    $("alias").value = EXAMPLE.alias;
+    $("start").value = String(head - EXAMPLE.back);
+    await add();
+  } catch (e) {
+    status(String(e.message ?? e), true);
+  }
+}
+
 init().then(
-  () => status("Ready. Paste an address."),
+  ready,
   (e) => status(`nuthatch did not load: ${e}`, true),
 );
 
@@ -249,8 +283,12 @@ function indexIt() {
 
 $("index").onclick = indexIt;
 $("query").onclick = () => {
+  if (!worker) {
+    $("qstatus").textContent = "Nothing to query yet: press Index it first.";
+    return;
+  }
   $("qstatus").textContent = "running…";
-  worker?.postMessage({ type: "query", id: ++qid, sql: $("q").value });
+  worker.postMessage({ type: "query", id: ++qid, sql: $("q").value });
 };
 $("q").onkeydown = (e) => (e.metaKey || e.ctrlKey) && e.key === "Enter" && $("query").click();
 
