@@ -3163,7 +3163,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-decode"
 version = "3.0.0-alpha.1"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=8d649a7bd43f6f6b2b3e277b78eb05696e119c60#8d649a7bd43f6f6b2b3e277b78eb05696e119c60"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=684a621839e67394e5b1bdd7f40064094c7a39d0#684a621839e67394e5b1bdd7f40064094c7a39d0"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
@@ -3178,7 +3178,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-identity"
 version = "0.1.0"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=8d649a7bd43f6f6b2b3e277b78eb05696e119c60#8d649a7bd43f6f6b2b3e277b78eb05696e119c60"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=684a621839e67394e5b1bdd7f40064094c7a39d0#684a621839e67394e5b1bdd7f40064094c7a39d0"
 dependencies = [
  "anyhow",
  "hex",
@@ -3191,7 +3191,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-scaffold"
 version = "0.1.0"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=8d649a7bd43f6f6b2b3e277b78eb05696e119c60#8d649a7bd43f6f6b2b3e277b78eb05696e119c60"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=684a621839e67394e5b1bdd7f40064094c7a39d0#684a621839e67394e5b1bdd7f40064094c7a39d0"
 dependencies = [
  "alloy-json-abi",
  "alloy-primitives",
@@ -3206,7 +3206,7 @@ dependencies = [
 [[package]]
 name = "nuthatch-seal"
 version = "0.1.0"
-source = "git+https://github.com/nuthatch-org/nuthatch?rev=8d649a7bd43f6f6b2b3e277b78eb05696e119c60#8d649a7bd43f6f6b2b3e277b78eb05696e119c60"
+source = "git+https://github.com/nuthatch-org/nuthatch?rev=684a621839e67394e5b1bdd7f40064094c7a39d0#684a621839e67394e5b1bdd7f40064094c7a39d0"
 dependencies = [
  "anyhow",
  "arrow",
@@ -4355,7 +4355,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys",
