@@ -16,6 +16,23 @@ function status(text, err = false) {
   $("status").classList.toggle("err", err);
 }
 
+// Which RPC is slow or refusing, from the worker's tally (burrmill-wasm#26). Made here rather than in
+// the markup, so build.astro in nuthatch-frontend needs no matching id.
+const rpcLine = Object.assign(document.createElement("div"), { className: "faint mono" });
+const secs = (ms) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
+function showRpcs(hosts) {
+  if (!rpcLine.isConnected) $("sealed").after(rpcLine);
+  const now = Date.now();
+  rpcLine.replaceChildren(...hosts.map((h) => {
+    const avg = h.calls ? h.ms / h.calls : 0;
+    const d = document.createElement("div");
+    d.textContent = `${h.host}: ${h.calls} request${h.calls === 1 ? "" : "s"}, ${secs(avg)} on average`
+      + (h.problems ? `; ${h.problems} busy or refused, the last ${secs(now - h.at)} ago: ${h.reason}` : "");
+    d.style.color = (h.problems && now - h.at < 60_000) || avg > 3000 ? "var(--err)" : "";
+    return d;
+  }));
+}
+
 const slug = (s) => s.replace(/_/g, "-").replace(/[^a-z0-9-]/g, "") || "nest";
 
 function input() {
@@ -233,6 +250,7 @@ function indexIt() {
     status("Set a start block for every contract first: Sourcify had no deploy block for one.", true);
     return;
   }
+  rpcLine.replaceChildren();
   worker?.terminate();
   worker = new Worker(new URL("./build-worker.js", import.meta.url), { type: "module" });
   const from = Math.min(...state.contracts.map((c) => c.start_block));
@@ -262,6 +280,8 @@ function indexIt() {
         const first = JSON.parse(state.files["schema.json"]).tables[0]?.table;
         $("q").value = first ? `SELECT * FROM "${first}" ORDER BY block_number DESC LIMIT 20` : "SELECT 1";
       }
+    } else if (m.type === "rpc") {
+      showRpcs(m.hosts);
     } else if (m.type === "sealed") {
       $("sealed").textContent = `Finality moved: sealed through block ${m.finalized} (${new Date().toLocaleTimeString()}), ${m.segments} full segments and ${m.tails} tails.`;
     } else if (m.type === "head") {

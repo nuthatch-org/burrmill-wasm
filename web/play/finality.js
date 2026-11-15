@@ -2,23 +2,8 @@
 // only when two independent RPCs both call it finalized, give it the same hash, and return the same
 // logs, block hashes and timestamps included, for every block up to it. Nothing here is authenticated;
 // it is agreement.
-import { headerTimes, refusedRange } from "./tail.js";
+import { headerTimes, one, refusedRange } from "./tail.js";
 
-let id = 0;
-async function one(rpc, method, params) {
-  let j = null;
-  for (let attempt = 0; !j; attempt++) {
-    const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params }) }).catch((e) => e);
-    const busy = r instanceof Error || r.status === 429 || r.status === 403 || r.status >= 500;
-    // A 4xx can still carry the RPC's reason, which is what says a range was too wide.
-    if (!busy && !r.ok) throw new Error(`${new URL(rpc).host}: ${(await r.json().catch(() => null))?.error?.message ?? `HTTP ${r.status}`}`);
-    j = busy ? null : await r.json().catch(() => null);
-    if (!j && attempt === 5) throw new Error(`${new URL(rpc).host}: ${r instanceof Error ? r.message : `HTTP ${r.status}`}, six times`);
-    if (!j) await new Promise((res) => setTimeout(res, 500 * 2 ** attempt));
-  }
-  if (j.error) throw Object.assign(new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`), { code: j.error.code });
-  return j.result;
-}
 const hex = (n) => `0x${n.toString(16)}`;
 const num = (h) => Number(BigInt(h));
 const header = (rpc, tag) => one(rpc, "eth_getBlockByNumber", [typeof tag === "number" ? hex(tag) : tag, false]);
