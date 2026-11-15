@@ -7,23 +7,45 @@ const SAMPLE = 20;
 /// chain time old (nuthatch #2084), 900 mainnet slots, so twice that covers missed slots too.
 export const MARGIN = 1800;
 
+/// Per RPC host: requests, their total time, answers that were busy or refused and the last reason, so a page
+/// can say which endpoint is slow or failing rather than sit on "Backfilling" (burrmill-wasm#26).
+export const health = new Map();
+function note(rpc, ms, problem) {
+  const host = new URL(rpc).host;
+  const h = health.get(host) ?? health.set(host, { calls: 0, ms: 0, problems: 0, reason: null, at: 0 }).get(host);
+  h.calls += ms === null ? 0 : 1;
+  h.ms += ms ?? 0;
+  if (problem) Object.assign(h, { problems: h.problems + 1, reason: problem, at: Date.now() });
+}
+
 let id = 0;
 async function call(rpc, body) {
   // A public RPC answers a busy moment with 429, a 403 (publicnode), a 5xx or a body that is not JSON.
   for (let attempt = 0; ; attempt++) {
+    const t0 = performance.now();
     const r = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch((e) => e);
     const busy = r instanceof Error || r.status === 429 || r.status === 403 || r.status >= 500;
     // A 4xx can still carry the RPC's reason, which is what says a range was too wide.
-    if (!busy && !r.ok) throw new Error(`${new URL(rpc).host}: ${(await r.json().catch(() => null))?.error?.message ?? `HTTP ${r.status}`}`);
+    if (!busy && !r.ok) {
+      const reason = (await r.json().catch(() => null))?.error?.message ?? `HTTP ${r.status}`;
+      note(rpc, performance.now() - t0, body.method === "eth_getLogs" && WIDE.test(reason) ? null : reason);
+      throw new Error(`${new URL(rpc).host}: ${reason}`);
+    }
     const j = busy ? null : await r.json().catch(() => null);
+    note(rpc, performance.now() - t0, j ? null : r instanceof Error ? r.message : r.ok ? "an answer that was not JSON" : `HTTP ${r.status}`);
     if (j) return j;
     if (attempt === 5) throw new Error(`${new URL(rpc).host}: ${r instanceof Error ? r.message : `HTTP ${r.status}`}, six times`);
     await new Promise((res) => setTimeout(res, 500 * 2 ** attempt));
   }
 }
-async function one(rpc, method, params) {
+export async function one(rpc, method, params) {
   const j = await call(rpc, { jsonrpc: "2.0", id: ++id, method, params });
-  if (j.error) throw Object.assign(new Error(`${method}: ${j.error.message ?? JSON.stringify(j.error)}`), { code: j.error.code });
+  if (j.error) {
+    const reason = j.error.message ?? JSON.stringify(j.error);
+    // An RPC saying a range was too wide is routine: the fetch narrows and goes on.
+    if (!(method === "eth_getLogs" && WIDE.test(reason))) note(rpc, null, reason);
+    throw Object.assign(new Error(`${method}: ${reason}`), { code: j.error.code });
+  }
   return j.result;
 }
 export const headBlock = async (rpc) => Number(BigInt(await one(rpc, "eth_blockNumber", [])));
@@ -31,8 +53,9 @@ const hex = (n) => `0x${n.toString(16)}`;
 /// Whether a getLogs over `span` blocks was refused for its width. mevblocker answers a busy wide range
 /// with -32603, "Internal error" or "service temporarily unavailable" (nuthatch #2296); for one block
 /// that is a fault.
+const WIDE = /range|limit|too many|exceed|max|response size|10000|query returned/i;
 export const refusedRange = (e, span) =>
-  span > 1 && (e?.code === -32603 || /range|limit|too many|exceed|max|response size|10000|query returned|timeout|timed out/i.test(String(e?.message ?? e)));
+  span > 1 && (e?.code === -32603 || WIDE.test(String(e?.message ?? e)) || /timeout|timed out/i.test(String(e?.message ?? e)));
 
 /// Each block's timestamp from its header, a handful at a time.
 export async function headerTimes(rpc, blocks) {

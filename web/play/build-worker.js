@@ -2,6 +2,7 @@
 // playground opens a published one, keep the unsealed blocks to the head on top, and answer SQL.
 import init, * as w from "./pkg/burrmill_wasm.js";
 import { backfill, advance, openable, headRows, storeFns, unsealed } from "./index-it.js";
+import { health } from "./tail.js";
 import { budgetMiB, ANSWER_MB } from "./budget.js";
 
 const ready = init();
@@ -43,6 +44,7 @@ onmessage = async ({ data }) => {
   try {
     await ready;
     if (data.type === "index") {
+      setInterval(() => postMessage({ type: "rpc", hosts: [...health].map(([host, h]) => ({ host, ...h })) }), 2000);
       const store = new Map();
       const done = await backfill({
         w, files: data.files, from: data.from, span: data.span, rpc: data.rpc, second: data.second, store,
